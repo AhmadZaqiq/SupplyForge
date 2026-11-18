@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\PlatformCore\SupplyForge.PlatformCore.Application\SupplyForge.PlatformCore.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\PlatformCore\SupplyForge.PlatformCore\SupplyForge.PlatformCore.csproj" />
+    <ProjectReference Include="..\..\src\Modules\PlatformCore\SupplyForge.PlatformCore.Contracts\SupplyForge.PlatformCore.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Host\SupplyForge.Host\SupplyForge.Host.csproj" />
+  </ItemGroup>
+
+</Project>

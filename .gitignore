@@ -1,0 +1,45 @@
+# .NET
+bin/
+obj/
+[Bb]uild/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.idea/
+*.swp
+*~
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
+
+# Docker / local data
+*.mdf
+*.ldf
+*.ndf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Publish
+publish/
+out/
+
+# Claude / agent scratch
+.claude/

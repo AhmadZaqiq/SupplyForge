@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Host/">
+    <Project Path="src/Host/SupplyForge.Host/SupplyForge.Host.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Integrations/">
+    <Project Path="src/Modules/Integrations/SupplyForge.Integrations.Contracts/SupplyForge.Integrations.Contracts.csproj" />
+    <Project Path="src/Modules/Integrations/SupplyForge.Integrations.Infrastructure/SupplyForge.Integrations.Infrastructure.csproj" />
+    <Project Path="src/Modules/Integrations/SupplyForge.Integrations/SupplyForge.Integrations.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/PlatformCore/">
+    <Project Path="src/Modules/PlatformCore/SupplyForge.PlatformCore.Application/SupplyForge.PlatformCore.Application.csproj" />
+    <Project Path="src/Modules/PlatformCore/SupplyForge.PlatformCore.Contracts/SupplyForge.PlatformCore.Contracts.csproj" />
+    <Project Path="src/Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure/SupplyForge.PlatformCore.Infrastructure.csproj" />
+    <Project Path="src/Modules/PlatformCore/SupplyForge.PlatformCore/SupplyForge.PlatformCore.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/SupplyForge.Shared/SupplyForge.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/ArchitectureTests/">
+    <Project Path="tests/ArchitectureTests/SupplyForge.ArchitectureTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/PlatformCore.IntegrationTests/">
+    <Project Path="tests/PlatformCore.IntegrationTests/SupplyForge.PlatformCore.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/PlatformCore.UnitTests/">
+    <Project Path="tests/PlatformCore.UnitTests/SupplyForge.PlatformCore.UnitTests.csproj" />
+  </Folder>
+</Solution>

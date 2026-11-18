@@ -1,0 +1,71 @@
+# NFR-061: CI on PR — build, test, format, container build.
+# NFR-040: dotnet test includes the architecture tests (MOD-1…5 rules).
+# NFR-042: dotnet format --verify-no-changes.
+# NFR-041: unit + integration tests per module (integration against a real
+# SQL Server service container — same image and credentials as the local
+# dev compose; the password is the repository's documented dev placeholder,
+# not a secret).
+#
+# Migrations run only against this job's ephemeral service container (its
+# own database), never against a shared/long-lived environment.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "SupplyForge_Dev_2026!"
+          MSSQL_PID: "Developer"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'SupplyForge_Dev_2026!' -C -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build
+
+      - name: Format (NFR-042)
+        run: dotnet format --verify-no-changes
+
+      - name: Install EF tool (matches package version 10.0.15)
+        run: dotnet tool install --global dotnet-ef --version 10.0.15
+
+      - name: Apply migrations to the ephemeral CI database
+        run: |
+          dotnet ef database update \
+            --project src/Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure \
+            --startup-project src/Host/SupplyForge.Host
+          dotnet ef database update \
+            --project src/Modules/Integrations/SupplyForge.Integrations.Infrastructure \
+            --startup-project src/Host/SupplyForge.Host
+
+      - name: Test — unit, integration (real SQL Server), architecture (NFR-040/041)
+        run: dotnet test
+
+      - name: Container build (NFR-061)
+        run: docker build -t supplyforge-host:ci .
