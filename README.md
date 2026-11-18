@@ -166,7 +166,9 @@ dotnet format --verify-no-changes
 ```
 
 `dotnet test` runs architecture tests (NFR-040), unit tests, and integration
-tests against real SQL Server (NFR-050).
+tests against real SQL Server (NFR-050). The integration tests connect with
+the default dev password from `.env.example`; if you change it, update the
+test connection strings too.
 
 ### Operations note: rate limiting
 
