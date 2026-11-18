@@ -52,8 +52,12 @@ jobs:
       - name: Format (NFR-042)
         run: dotnet format --verify-no-changes
 
-      - name: Install EF tool (matches package version 10.0.15)
-        run: dotnet tool install --global dotnet-ef --version 10.0.15
+      # Root cause of the first CI run failing: `dotnet ef` resolves through
+      # the root dotnet-tools.json manifest (pinned dotnet-ef 10.0.15), which
+      # takes precedence over any global install — a fresh checkout must
+      # restore the manifest or the command exits with a restore hint.
+      - name: Restore manifest-pinned tools (dotnet-ef 10.0.15)
+        run: dotnet tool restore
 
       - name: Apply migrations to the ephemeral CI database
         run: |
