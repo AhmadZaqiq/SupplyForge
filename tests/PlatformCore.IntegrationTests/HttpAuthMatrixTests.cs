@@ -17,8 +17,9 @@ namespace SupplyForge.PlatformCore.IntegrationTests;
 /// pipeline: A0-1 SEC-13 (401 for unauthenticated/invalid tokens), PLT-011
 /// (valid JWT passes), INT-050 (X-Api-Key path next to JWT), the A0-3
 /// Step 7 SEC-13 401/403 matrix over every protected endpoint, the A0-4 S1
-/// BRN-011/013/014 status discrimination, and the A0-4 S3 INT-052 OpenAPI
-/// security-scheme contract.
+/// BRN-011/013/014 status discrimination, the A0-4 S3 INT-052 OpenAPI
+/// security-scheme contract, and the A0-6 S3 A0-gate notification
+/// round-trip (PLT-050) through the real Host DI composition.
 /// No Mvc.Testing package: the host is started as a child process (approved
 /// package set is EF Core + JwtBearer only).
 /// </summary>
@@ -142,6 +143,7 @@ public sealed class HttpAuthMatrixTests : IAsyncLifetime
         {
             { "GET", "/api/v1/notifications" },
             { "POST", "/api/v1/notifications" },
+            { "POST", "/api/v1/notifications/7b3f0000-0000-4000-8000-000000000002/mark-sent" },
             { "POST", "/api/v1/api-keys" },
             { "DELETE", "/api/v1/api-keys/7b3f0000-0000-4000-8000-000000000001" },
             { "POST", "/api/v1/users" },
@@ -454,6 +456,78 @@ public sealed class HttpAuthMatrixTests : IAsyncLifetime
 
         await TestPermissionGrant.RemoveGrantAsync(grantRoleId);
         await CleanupAsync(userName, apiKeyId);
+    }
+
+    // --- A0-6 S3 remainder / A0 gate: notification round-trip (ADR-008). ---
+
+    [Fact]
+    public async Task PLT_050_NotificationRoundTrip_RaiseThenReadBack_AppearsInInAppApi()
+    {
+        // A0 gate "notification round-trip" (ADR-008): create a notification
+        // over HTTP, then read it back through the perm:-gated in-app API.
+        // This is the only test that resolves NotificationRaiseService +
+        // AmbientDbSessionFactory through the real Host DI composition (the
+        // ADR-003 production parity leg, NFR-050). The 201 also proves the
+        // ADR-008 leg "fake email sink receives message": the inline
+        // post-commit attempt awaits IEmailSender.SendAsync (DI-wired to the
+        // singleton FakeEmailSender) before the endpoint answers, and the
+        // recorded outcome is visible as deliveryStatus=Sent below. The
+        // mark-sent and failure-injection legs run against a failure-injected
+        // host in NotificationDeliveryHttpTests.
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var userName = $"notif_{suffix}";
+        await TestUsers.CreateAsync(userName, "Passw0rd!x", "Notify");
+        var raiseGrantId = await TestPermissionGrant.GrantToUserByUserNameAsync(
+            userName, "platform.notification.raise");
+        var readGrantId = await TestPermissionGrant.GrantToUserByUserNameAsync(
+            userName, "platform.notification.read");
+
+        var token = await LoginAsync(userName);
+
+        var title = $"Round-trip {suffix}";
+        var raise = await SendWithBearerAsync(
+            HttpMethod.Post,
+            "/api/v1/notifications",
+            Json(new { notificationType = "approval.requested", title, body = "A0 gate round-trip" }),
+            token);
+        Assert.Equal(HttpStatusCode.Created, raise.StatusCode);
+        using var raiseDoc = JsonDocument.Parse(await raise.Content.ReadAsStringAsync());
+        var id = raiseDoc.RootElement.GetProperty("id").GetGuid();
+
+        // Leg "appears in in-app API": the raised row is readable back with
+        // the caller's own subject scope (broadcast + own rows, ADR-008).
+        var read = await GetWithBearerAsync("/api/v1/notifications", token);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        using var readDoc = JsonDocument.Parse(await read.Content.ReadAsStringAsync());
+        var item = Assert.Single(
+            readDoc.RootElement.EnumerateArray(),
+            x => x.GetProperty("id").GetGuid() == id);
+        Assert.Equal(title, item.GetProperty("title").GetString());
+        Assert.Equal("approval.requested", item.GetProperty("notificationType").GetString());
+
+        // ADR-008 legs "fake email sink receives message" + PLT-051/052 read
+        // surface: the inline attempt succeeded, so the read API exposes the
+        // row as Sent with the adapter timestamp and no pending retry.
+        Assert.Equal("Sent", item.GetProperty("deliveryStatus").GetString());
+        Assert.Equal(1, item.GetProperty("deliveryAttempts").GetInt32());
+        Assert.NotNull(item.GetProperty("sentAt").GetString());
+        Assert.True(item.GetProperty("lastDeliveryError").ValueKind == JsonValueKind.Null);
+
+        await TestPermissionGrant.RemoveGrantAsync(raiseGrantId);
+        await TestPermissionGrant.RemoveGrantAsync(readGrantId);
+        await CleanupNotificationAsync(id);
+        await CleanupAsync(userName, Guid.Empty);
+    }
+
+    private async Task CleanupNotificationAsync(Guid notificationId)
+    {
+        var opts = new DbContextOptionsBuilder<PlatformCoreDbContext>()
+            .UseSqlServer(ConnectionString, sql =>
+                sql.MigrationsHistoryTable("__EFMigrationsHistory", PlatformCoreDbContext.Schema))
+            .Options;
+
+        await using var db = new PlatformCoreDbContext(opts);
+        await db.Notifications.Where(n => n.Id == notificationId).ExecuteDeleteAsync();
     }
 
     private async Task CleanupAsync(string userName, Guid apiKeyId)

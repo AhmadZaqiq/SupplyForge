@@ -214,6 +214,148 @@ public sealed class PlatformSharedServices :
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<NotificationItem>> ListVisibleToUserAsync(
+        Guid userId, int limit, CancellationToken cancellationToken = default)
+    {
+        // ADR-008 read API: a user sees broadcast rows (UserId null) and rows
+        // addressed to them; newest first, bounded — never an unbounded scan.
+        return await _db.Notifications
+            .Where(n => n.UserId == null || n.UserId == userId)
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(limit)
+            .Select(n => new NotificationItem(
+                n.Id, n.NotificationType, n.Title, n.Body, n.Link, n.CreatedAt, n.ReadAt,
+                n.DeliveryStatus, n.DeliveryAttempts, n.SentAt, n.LastDeliveryError))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Matches Notification.LastDeliveryError HasMaxLength(500).</summary>
+    private const int MaxDeliveryErrorLength = 500;
+
+    public async Task<bool> TryClaimDeliveryAttemptAsync(
+        Guid notificationId,
+        int expectedAttempts,
+        DateTimeOffset leaseUntil,
+        CancellationToken cancellationToken = default)
+    {
+        // Single conditional UPDATE = compare-and-swap on (Pending,
+        // expectedAttempts): exactly one concurrent claimer wins, and the
+        // in-flight lease (NextAttemptAt) hides the row from the sweep while
+        // the adapter runs — a second sweeper can neither select nor claim
+        // it (PLT-052 duplicate-processing guard, boundary: INT-002).
+        var claimed = await _db.Notifications
+            .Where(n => n.Id == notificationId
+                && n.DeliveryStatus == NotificationDeliveryStatus.Pending
+                && n.DeliveryAttempts == expectedAttempts)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.DeliveryAttempts, n => n.DeliveryAttempts + 1)
+                .SetProperty(n => n.NextAttemptAt, leaseUntil),
+                cancellationToken);
+        return claimed == 1;
+    }
+
+    public async Task RecordDeliveryAttemptAsync(
+        Guid notificationId,
+        bool succeeded,
+        int attempts,
+        string? error,
+        DateTimeOffset? nextAttemptAt,
+        CancellationToken cancellationToken = default)
+    {
+        // Conditional on Pending + the claimed attempt count: a late outcome
+        // (adapter still running when an operator manually mark-sent the
+        // row) can never overwrite a terminal state — zero rows updated is a
+        // discarded outcome, not an error.
+        if (succeeded)
+        {
+            var sentAt = _clock.GetUtcNow();
+            await _db.Notifications
+                .Where(n => n.Id == notificationId
+                    && n.DeliveryStatus == NotificationDeliveryStatus.Pending
+                    && n.DeliveryAttempts == attempts)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(n => n.DeliveryStatus, NotificationDeliveryStatus.Sent)
+                    .SetProperty(n => n.SentAt, sentAt)
+                    .SetProperty(n => n.NextAttemptAt, (DateTimeOffset?)null)
+                    .SetProperty(n => n.LastDeliveryError, (string?)null),
+                    cancellationToken);
+            return;
+        }
+
+        // Terminal exactly when no retry is scheduled (INT-003 dead-letter);
+        // PLT-044: sender-controlled error text only, truncated to the column
+        // limit — never payload or credentials.
+        var failedStatus = nextAttemptAt is null
+            ? NotificationDeliveryStatus.Failed
+            : NotificationDeliveryStatus.Pending;
+        var recordedError = error is null
+            ? null
+            : error[..Math.Min(error.Length, MaxDeliveryErrorLength)];
+
+        await _db.Notifications
+            .Where(n => n.Id == notificationId
+                && n.DeliveryStatus == NotificationDeliveryStatus.Pending
+                && n.DeliveryAttempts == attempts)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.DeliveryStatus, failedStatus)
+                .SetProperty(n => n.NextAttemptAt, nextAttemptAt)
+                .SetProperty(n => n.LastDeliveryError, recordedError),
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<NotificationDeliveryItem>> ListDueForDeliveryAsync(
+        int limit, CancellationToken cancellationToken = default)
+    {
+        // PLT-052 sweep predicate: only Pending rows with a scheduled retry —
+        // inline-attempt rows (NextAttemptAt NULL) and terminal states are
+        // never due, so the worker cannot double-send (ADR-008 race rule).
+        var now = _clock.GetUtcNow();
+        return await _db.Notifications
+            .Where(n => n.DeliveryStatus == NotificationDeliveryStatus.Pending
+                && n.NextAttemptAt != null
+                && n.NextAttemptAt <= now)
+            .OrderBy(n => n.NextAttemptAt)
+            .Take(limit)
+            .Select(n => new NotificationDeliveryItem(
+                n.Id, n.NotificationType, n.Title, n.Body, n.DeliveryAttempts))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<NotificationMarkSentResult> MarkSentManuallyAsync(
+        Guid notificationId, CancellationToken cancellationToken = default)
+    {
+        // One conditional UPDATE: exactly one concurrent caller performs the
+        // Pending/Failed → Sent transition (TD-2 idempotent under concurrency;
+        // a racing worker's late adapter outcome is discarded by its own
+        // Pending guard instead of overwriting this). No adapter call
+        // happens, so DeliveryAttempts stays as-is.
+        var updated = await _db.Notifications
+            .Where(n => n.Id == notificationId
+                && (n.DeliveryStatus == NotificationDeliveryStatus.Pending
+                    || n.DeliveryStatus == NotificationDeliveryStatus.Failed))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.DeliveryStatus, NotificationDeliveryStatus.Sent)
+                .SetProperty(n => n.SentAt, _clock.GetUtcNow())
+                .SetProperty(n => n.NextAttemptAt, (DateTimeOffset?)null)
+                .SetProperty(n => n.LastDeliveryError, (string?)null),
+                cancellationToken);
+        if (updated == 1)
+        {
+            return NotificationMarkSentResult.MarkedSent;
+        }
+
+        // Zero rows: already Sent, or the row does not exist. Nothing in A0
+        // transitions out of Sent, so a re-read of status distinguishes the
+        // two (a row deleted in between reads as missing).
+        var status = await _db.Notifications
+            .Where(n => n.Id == notificationId)
+            .Select(n => (string?)n.DeliveryStatus)
+            .FirstOrDefaultAsync(cancellationToken);
+        return status == NotificationDeliveryStatus.Sent
+            ? NotificationMarkSentResult.AlreadySent
+            : NotificationMarkSentResult.NotFound;
+    }
+
     public async Task<Guid> StartAsync(string jobName, string? correlationId, CancellationToken cancellationToken = default)
     {
         var id = Guid.NewGuid();

@@ -238,8 +238,23 @@ namespace SupplyForge.PlatformCore.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int>("DeliveryAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DeliveryStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("LastDeliveryError")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("Link")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("NotificationType")
                         .IsRequired()
@@ -247,6 +262,9 @@ namespace SupplyForge.PlatformCore.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("SentAt")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Title")
@@ -260,6 +278,8 @@ namespace SupplyForge.PlatformCore.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("NotificationType");
+
+                    b.HasIndex("DeliveryStatus", "NextAttemptAt");
 
                     b.HasIndex("UserId", "ReadAt");
 

@@ -140,6 +140,11 @@ public class PlatformCoreDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.NotificationType).HasMaxLength(100).IsRequired();
             e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            // ADR-008 delivery state: sweep predicate (Pending + due) and
+            // PLT-052 dead-letter lookup both filter on status first.
+            e.Property(x => x.DeliveryStatus).HasMaxLength(20).IsRequired();
+            e.Property(x => x.LastDeliveryError).HasMaxLength(500);
+            e.HasIndex(x => new { x.DeliveryStatus, x.NextAttemptAt });
             e.HasIndex(x => new { x.UserId, x.ReadAt });
             e.HasIndex(x => x.NotificationType);
         });

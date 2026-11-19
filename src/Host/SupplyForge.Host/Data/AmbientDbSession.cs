@@ -171,8 +171,17 @@ public sealed class AmbientDbSessionFactory : IDbSessionFactory
 
     public async Task<IDbSession> BeginAsync(CancellationToken cancellationToken = default)
     {
-        var platformConnectionString = RequireConnectionString(_platform.Database.GetDbConnection());
-        var integrationsConnectionString = RequireConnectionString(_integrations.Database.GetDbConnection());
+        // Configured string from EF options — deliberately NOT
+        // GetDbConnection().ConnectionString: SqlClient redacts the password
+        // from a connection's ConnectionString once it has been opened, and
+        // in the Host the scoped context has normally already executed the
+        // request's queries (permission resolution) before a session begins,
+        // so the live connection's string would be credential-less ("Login
+        // failed for user 'sa'" — found by the A0-6 HTTP round-trip test).
+        // Database.GetConnectionString() reads the unchanged configured
+        // value, which is also what the post-session restore needs.
+        var platformConnectionString = RequireConnectionString(_platform.Database.GetConnectionString());
+        var integrationsConnectionString = RequireConnectionString(_integrations.Database.GetConnectionString());
 
         var shared = new SqlConnection(platformConnectionString);
         AmbientDbSession? session = null;
@@ -210,9 +219,9 @@ public sealed class AmbientDbSessionFactory : IDbSessionFactory
         }
     }
 
-    private static string RequireConnectionString(DbConnection connection) =>
-        !string.IsNullOrEmpty(connection.ConnectionString)
-            ? connection.ConnectionString
+    private static string RequireConnectionString(string? connectionString) =>
+        !string.IsNullOrEmpty(connectionString)
+            ? connectionString
             : throw new InvalidOperationException(
-                "The ambient session requires a connection string on every joined DbContext.");
+                "The ambient session requires a configured connection string on every joined DbContext.");
 }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.JsonWebTokens;
 using System.Text.Json;
 using SupplyForge.Host.Auth;
+using SupplyForge.Host.Data;
 using SupplyForge.Integrations.Infrastructure.Data;
 using SupplyForge.PlatformCore.Application.Security;
 using SupplyForge.PlatformCore.Domain;
@@ -80,10 +81,25 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         return new IntegrationsDbContext(opts);
     }
 
-    private static AuthService CreateAuth(PlatformCoreDbContext db) =>
-        new(db, new PlatformSharedServices(db, TimeProvider.System), TimeProvider.System,
+    private static AuthService CreateAuth(PlatformCoreDbContext db)
+    {
+        // A0-6 S4: CreateUserAsync now runs inside the ADR-003 ambient
+        // session — the production factory joins this very context (plus the
+        // Integrations context) so the test exercises the same composition
+        // the Host DI registers.
+        var integrationsOpts = new DbContextOptionsBuilder<IntegrationsDbContext>()
+            .UseSqlServer(ConnectionString, sql =>
+                sql.MigrationsHistoryTable("__EFMigrationsHistory", IntegrationsDbContext.Schema))
+            .Options;
+
+        return new AuthService(
+            db,
+            new PlatformSharedServices(db, TimeProvider.System),
+            TimeProvider.System,
             new JwtAccessTokenIssuer(TestIssuer, TestAudience, TestJwtSecret, TimeProvider.System),
-            new PermissionResolver(db));
+            new PermissionResolver(db),
+            new AmbientDbSessionFactory(db, new IntegrationsDbContext(integrationsOpts)));
+    }
 
     [Fact]
     public async Task NFR_050_PlatformCore_CanConnectAndQueryUsers()
@@ -399,7 +415,7 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     {
         await using var db = CreatePlatformDb();
         var store = new PlatformSharedServices(db, TimeProvider.System);
-        var email = new FakeEmailSender();
+        var email = new FakeEmailSender(new EmailOptions());
 
         var id = await store.RaiseAsync(
             "stock.below_reorder",

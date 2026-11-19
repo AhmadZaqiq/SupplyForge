@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SupplyForge.Host.Auth;
 using SupplyForge.Host.Authorization;
+using SupplyForge.Host.Notifications;
 using SupplyForge.Host.RateLimiting;
 using SupplyForge.PlatformCore.Application.Email;
 using SupplyForge.PlatformCore.Application.Security;
@@ -57,6 +58,16 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<SupplyForge.Integrations.Infrastructure.Outbox.Outbox>());
 
         services.AddSingleton(TimeProvider.System);
+
+        // ADR-008 / PLT-051 / PLT-052: email side-channel configuration,
+        // bound and validated at startup like AuthRateLimitOptions so an
+        // unsupported Email:Mode (e.g. Smtp before the adapter exists) fails
+        // closed before any traffic is served. Defaults preserve A0 behavior:
+        // Fake sender, no injected failures, three attempts with backoff.
+        var emailOptions = configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>()
+            ?? new EmailOptions();
+        emailOptions.Validate();
+        services.AddSingleton(emailOptions);
         services.AddSingleton<IEmailSender, FakeEmailSender>();
 
         var jwtIssuer = configuration["Auth:Issuer"]
@@ -85,7 +96,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IAuditWriter>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IAccessTokenIssuer>(),
-            sp.GetRequiredService<IPermissionResolver>()));
+            sp.GetRequiredService<IPermissionResolver>(),
+            sp.GetRequiredService<SupplyForge.Shared.Data.IDbSessionFactory>()));
 
         // PLT-022 / A0-3 Step 4: bootstrap-window state behind the create-user
         // policy (Application interface, Infrastructure implementation).
@@ -96,6 +108,16 @@ public static class ServiceCollectionExtensions
         // A0-6 / ADR-003 / MOD-TXN-02: raise = session commit then email;
         // extracted from the endpoint so the ordering is testable.
         services.AddScoped<NotificationRaiseService>();
+
+        // ADR-008 / PLT-051 / PLT-052: delivery state machine shared by the
+        // inline raise attempt, the TD-2 mark-sent endpoint, and the retry
+        // worker (adapter call always outside any session, MOD-TXN-02).
+        services.AddScoped<NotificationDeliveryService>();
+
+        // PLT-052 / INT-003: async retry with exponential backoff + jitter;
+        // max attempts leaves the row Failed — dead-letter, visible in the
+        // read API. Registered unconditionally; Email:Mode decides behavior.
+        services.AddHostedService<NotificationRetryWorker>();
 
         // PLT-020 / SEC-10 (A0-3 Step 2): perm:* policy evaluation resolves
         // current permissions server-side per request (ADR-004).

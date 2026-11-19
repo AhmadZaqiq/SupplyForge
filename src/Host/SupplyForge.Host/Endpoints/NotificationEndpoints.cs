@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupplyForge.Host.Api;
 using SupplyForge.Host.Authorization;
+using SupplyForge.PlatformCore.Domain;
 using SupplyForge.PlatformCore.Infrastructure.Application.Notifications;
 using SupplyForge.Shared.Notifications;
 
@@ -48,14 +49,55 @@ public static class NotificationEndpoints
         .RequireAuthorization(SupplyForgeAuthorization.NotificationRaisePolicy);
 
         app.MapGet(ApiRoutes.Notifications.Mine, async (
+            HttpContext http,
             INotificationStore store,
             CancellationToken ct) =>
         {
-            // Minimal list for A0 gate visibility; paging comes with ADR-006 full surface.
-            return Results.Ok(Array.Empty<object>());
+            // ADR-008 read API (A0): the signed-in user reads broadcast plus
+            // own notifications; bounded list, paging with the ADR-006 full
+            // surface later.
+            if (!PrincipalSubject.TryGetUserId(http.User, out var subjectId))
+            {
+                // Unreachable through the perm: policy (it denies an
+                // unresolvable subject before the endpoint runs) — fail
+                // closed anyway rather than expose another user's rows.
+                return Results.Forbid();
+            }
+
+            var items = await store.ListVisibleToUserAsync(subjectId, limit: 50, ct);
+            return Results.Ok(items);
         })
         // PLT-022: explicit perm:* policy — real check via IPermissionResolver (Step 2).
         .RequireAuthorization(SupplyForgeAuthorization.NotificationReadPolicy);
+
+        // TD-2 / ADR-008: manual mark-sent is an explicit workflow (kept
+        // until Q-5 decides email in P1, never tech debt to delete): the
+        // operator records delivery that happened outside the adapter —
+        // a pending row when email is off, or recovery of a Failed
+        // dead-letter row. Same perm:* policy as raise: one operator
+        // capability, so the seeded PLT-020 catalogue stays as-is.
+        app.MapPost(ApiRoutes.Notifications.MarkSent, async (
+            [FromRoute] Guid id,
+            HttpContext http,
+            NotificationDeliveryService delivery,
+            CancellationToken ct) =>
+        {
+            if (!PrincipalSubject.TryGetUserId(http.User, out var actorId))
+            {
+                // Unreachable through the perm: policy (same fail-closed
+                // guard as GET above) — never act without a subject.
+                return Results.Forbid();
+            }
+
+            var result = await delivery.MarkSentAsync(id, actorId.ToString(), ct);
+            return result switch
+            {
+                NotificationMarkSentResult.NotFound => Results.NotFound(),
+                _ => Results.Ok(new { id, deliveryStatus = NotificationDeliveryStatus.Sent }),
+            };
+        })
+        // PLT-022: explicit perm:* policy — real check via IPermissionResolver (Step 2).
+        .RequireAuthorization(SupplyForgeAuthorization.NotificationRaisePolicy);
 
         return app;
     }

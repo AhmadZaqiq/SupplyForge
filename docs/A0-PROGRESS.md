@@ -1,6 +1,6 @@
 # A0 Progress — SupplyForge
 
-Slice: **A0 Foundations** (PRD §11.2). Updated: 2026-11-18.
+Slice: **A0 Foundations** (PRD §11.2). Updated: 2026-11-20.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
 
@@ -14,8 +14,9 @@ status only; it is not a requirements source.
 | A0-2b | Rate-limiter defect fix: bound partition cardinality (evict idle children), bound login-body buffering memory, cap account-key user-name length | SEC-04 | **Done** | Full solution 65/65 (9 arch + 26 unit + 30 integration), two consecutive runs; `dotnet format --verify-no-changes` clean; unit tests cover active-hold vs sweep (no dispose while in use), recent-use retention, idle eviction + bucket recreation, auto-sweep timer, concurrent acquire+sweep with no ObjectDisposedException, Content-Length-over-cap skip (zero read), actual body over cap without Content-Length, 101-char user name → no account key, malformed JSON, and cap invariants; all prior A0-2 HTTP tests unchanged and green |
 | A0-3 | Permission catalogue, role bundles, endpoint permission metadata deny-default (PLT-020/022, PLT-ROLE-1) — **Done (9/9 steps):** fail-closed Fallback/Default + endpoint coverage · `perm:` policy provider + `IPermissionResolver` · runtime catalogue/role-bundle seed · secure create-user bootstrap (handler + `sp_getapplock` revalidation) · case/collation pins · behavioral always-true-policy scan · SEC-13 HTTP 401/403 matrix complete · verification sweep · close-out | PLT-010, PLT-020, PLT-022, PLT-ROLE-1, SEC-10, SEC-13 | **Done** | Full solution **114/114** (14 arch + 43 unit + 57 integration), two consecutive green runs in the Step 8 sweep; `dotnet format --verify-no-changes` clean; no always-true policy obtainable (behavioral scan, synthetic positive control); every protected endpoint answers anonymous → 401 and authenticated-without-permission → 403 (two theories over all 5 routes); 4 permission codes + 11 system roles seeded idempotently at Host startup; POST /users gated by the bootstrap-window handler with service-layer revalidation under an application lock; details + defects found in-step in the Step 1–9 notes below |
 | A0-4 | Branch isolation + IDOR/404-403 matrix tests at HTTP level; password reset (PLT-013); audit redaction (PLT-044); OpenAPI security schemes (INT-052, ADR-006 dual auth in OpenAPI) | BRN-001…014, SEC-12/13, PLT-013, PLT-044 | **Done (S1–S3 + S5–S6; S4 PLT-013 deferred by owner)** | S1 BRN-011/013/014 HTTP status discrimination on `DELETE /api/v1/api-keys/{id}` (401 anonymous / 403 no-permission-with-204-control / 404 unknown-id) · S2 PLT-044 `SensitiveDataRedactor` at the `IAuditWriter` choke point (16 unit + 1 integration) · S3 INT-052 OpenAPI `Bearer` + `X-Api-Key` schemes with per-endpoint placement from endpoint metadata (3 tests, 7 cases) · S5 sweep green · S6 close-out. **Full solution 141/141** (14 arch + 59 unit + 68 integration), two consecutive green runs, format clean, build 0 errors 0 warnings. Deferred by decisions: PLT-013 needs migration approval; BRN-012/SEC-12 foreign-branch leg → first branch-owned resource in A1. Details in S1–S6 notes below |
-| A0-5 | CI workflow (build, test, format, container build), README/runbook (NFR-061/062) | NFR-061, NFR-062, NFR-040/042 | **Done** | `.github/workflows/ci.yml`: build → format → EF migrations on the ephemeral service container → full test suite (arch incl.) → `docker build`, every step executed locally (migrations proven on a throwaway fresh DB; GH Actions themselves need the first PR); `Dockerfile` + `.dockerignore` build and smoke-run green (`/health` 200); `README.md` covers architecture overview + runbook (incl. A0-2's deferred rate-limit ops note) + generated OpenAPI. Sweep: build 0 errors 0 warnings, **141/141 ×2**, format 0, YAML OK, null-byte clean, HANDOFF identical. Carried: NFR-060 compose `app` service not in this row — not implemented |
-| A0-6 | ADR-003 ambient-transaction spike: Host-owned multi-module `IDbSession` (one shared `DbConnection` + `DbTransaction` joining PlatformCore + Integrations contexts), first production adopters, ADR-003 "How tests prove it" table | MOD-TXN-01…05, OUT-01, IDEM-05, PLT-050, NFR-043(5), NFR-050 | **In progress (S1–S3 core done; S3 HTTP round-trip + S4–S6 remaining)** | Spike cases A–F resolved on a throwaway real SQL Server (plan below). S1 `AmbientDbSession`/`AmbientDbSessionFactory` in Host DI (M0 `DbSession` deleted); S2 `NotificationRaiseService` session-then-email (MOD-TXN-02); S3 six tests green 6/6 incl. IDEM-05 root-cause fix of a read-then-insert claim race. Pre-close sweep 2026-11-18: build 0/0, **147/147** (14 arch + 59 unit + 74 integration), format clean. ADR-003 status: Accepted, recommendation defaults approved — no ask-first needed for the spike itself |
+| A0-5 | CI workflow (build, test, format, container build), README/runbook (NFR-061/062) | NFR-061, NFR-062, NFR-040/042 | **Done** | `.github/workflows/ci.yml`: build → format → EF migrations on the ephemeral service container → full test suite (arch incl.) → `docker build`, every step executed locally (migrations proven on a throwaway fresh DB) and **CI green on GitHub**: first green run `44439119956` on `main` (`bfa232b`), 2026-11-19, after CI itself caught and drove three root fixes (`e11e940` manifest tool restore, `393b84f` + `bfa232b` bootstrap-window test preconditions on fresh databases); `Dockerfile` + `.dockerignore` build and smoke-run green (`/health` 200); `README.md` covers architecture overview + runbook (incl. A0-2's deferred rate-limit ops note) + generated OpenAPI. Carried: NFR-060 compose `app` service not in this row — not implemented |
+| A0-6 | ADR-003 ambient-transaction spike: Host-owned multi-module `IDbSession` (one shared `DbConnection` + `DbTransaction` joining PlatformCore + Integrations contexts), first production adopters, ADR-003 "How tests prove it" table | MOD-TXN-01…05, OUT-01, IDEM-05, PLT-050, NFR-043(5), NFR-050 | **Done (S1–S6)**; A0 gate review below — its one open item (delivery-state migration) was owner-approved and closed by A0-7 | Spike cases A–F resolved on a throwaway real SQL Server (plan below). S1 `AmbientDbSession`/`AmbientDbSessionFactory` in Host DI (M0 `DbSession` deleted); S2 `NotificationRaiseService` session-then-email (MOD-TXN-02); S3 seven tests green incl. IDEM-05 root-cause fix of a read-then-insert claim race + the HTTP notification round-trip (`PLT_050_NotificationRoundTrip_RaiseThenReadBack_AppearsInInAppApi`, A0 gate); S4 `AuthService.CreateUserAsync` on the ambient session; S5 sweep **148/148 ×2** (14 arch + 59 unit + 75 integration), format clean; S6 close-out + `spike-tx-sql` removed. Defect fixed in-step: SqlClient connection-string password redaction broke session begin in the live Host (details in S3-remainder notes) |
+| A0-7 | Notification delivery state closing the A0 gate: `Email` options (Fake/Disabled, startup-validated) + failure-injecting fake, delivery columns on `platform.Notification` + approved migration, inline post-commit attempt recording Sent/Pending/Failed, `NotificationRetryWorker` (INT-003 backoff + jitter → dead-letter Failed), TD-2 audited `POST /notifications/{id}/mark-sent`, delivery fields on the read API | PLT-051, PLT-052, TD-2, INT-003, ADR-008 round-trip legs 4–5 | **Done** | Migration `20261119033923_AddNotificationDeliveryState` applied to the dev DB (owner-approved; backfills pre-existing rows to visible Pending, never auto-swept). Full solution **169/169 ×2** (14 arch + 68 unit + 87 integration), build 0/0, format clean. Failure-injected second Host proves raise → 201 (failure recorded, not 500) → worker retry → Failed visible in the read API; mark-sent recovers Failed → Sent over HTTP (404 unknown, idempotent repeat); PLT-051 disabled mode leaves visible pending with zero adapter calls. Details below |
 
 ## A0-1 notes (2026-11-17)
 
@@ -842,6 +843,237 @@ sequential per scoped request).
 - **Pre-close sweep (2026-11-18):** `dotnet build` 0 errors 0 warnings;
   `dotnet test` **147/147** (14 arch + 59 unit + 74 integration); `dotnet
   format --verify-no-changes` clean.
-- **Not yet done:** S3 remainder, S4 (`AuthService.CreateUserAsync` adopts
+- **Not yet done (at that point):** S3 remainder, S4 (`AuthService.CreateUserAsync` adopts
   `IDbSessionFactory`), S5 final sweep, S6 close-out (incl. removing the
-  throwaway `spike-tx-sql` container).
+  throwaway `spike-tx-sql` container) — **all done in the 2026-11-19
+  section below.**
+
+### A0-6 S3-remainder/S4/S5/S6 notes + A0 gate review (2026-11-19)
+
+**Files read before coding (this session):** PRD `INDEX.md`,
+`00-how-to-use.md`, Core set (`04a`, `04b`, `04c`, `06a`, `06b`, `06d`,
+`08`, `10`, `11`, `07`, `03`, `02b`, `05-01`) + `PLT-050…052` greps;
+`ADR/ADR-003.md`, `ADR/ADR-008.md`; library `workflows/implementation.md`,
+`general/testing.md`, `expertise/DOTNET_TESTING.md`, `expertise/EF_CORE.md`,
+`expertise/DOTNET_ENGINEERING.md`.
+
+#### S3 remainder — in-app read API + HTTP notification round-trip
+
+- **Read API (ADR-008 Decision item 1: A0 defines "storage + read API").**
+  `GET /api/v1/notifications` previously returned a hardcoded empty array.
+  Added `INotificationStore.ListVisibleToUserAsync` + `NotificationItem`
+  read model (Shared contract), implemented in `PlatformSharedServices` —
+  broadcast rows (`UserId == null`) plus the caller's own, newest first,
+  bounded 50 — and the endpoint resolves its subject via
+  `PrincipalSubject`, failing closed if it cannot (unreachable in practice:
+  the perm: policy already denies an unresolvable subject). No schema
+  change.
+- **Round-trip test:** `HttpAuthMatrixTests.PLT_050_NotificationRoundTrip_RaiseThenReadBack_AppearsInInAppApi`
+  — create user → grant `platform.notification.raise` + `platform.notification.read`
+  → login → `POST /api/v1/notifications` → 201 (id parsed) → `GET` → the
+  row is present with matching id/title/type → cleanup (grants, row, user).
+  Only test that resolves `NotificationRaiseService` +
+  `AmbientDbSessionFactory` through the real Host DI (ADR-003 production
+  parity, NFR-050). The 201 also proves the ADR-008 leg "fake email sink
+  receives message": `RaiseAsync` awaits `IEmailSender.SendAsync`
+  (DI-wired to the singleton `FakeEmailSender`) before the endpoint
+  answers — a rejecting sink could only produce 500, never 201.
+- **ADR-008 round-trip legs 4–5 blocked (owner decision):** "mark-sent
+  path works" and "failure injection shows Failed" are PLT-051
+  (visible pending) / PLT-052 (failures visible) and need persisted
+  delivery state on/next to `Notification` — a schema change. Migrations
+  are ask-first (project AGENTS.md; this session's constraint: no
+  migrations against the development database). Recorded as the single
+  open A0 gate item below.
+
+#### Defect found in-step (production code, root-fixed)
+
+- **`AmbientDbSessionFactory` captured connection strings from
+  `Database.GetDbConnection().ConnectionString`.** Microsoft.Data.SqlClient
+  redacts the password from a connection's `ConnectionString` once that
+  connection has been opened. Every session test passed because test
+  contexts are fresh/never-opened; in the Host the scoped context has
+  normally already run the request's permission queries before a session
+  begins, so the shared connection opened credential-less →
+  `Login failed for user 'sa'` → 500 on `POST /api/v1/notifications` —
+  the first test ever to begin a session inside an already-used Host
+  scope. Fixed at the root with `Database.GetConnectionString()` (the
+  unchanged configured string from EF options — also what the post-session
+  restore needs); regression-covered by the round-trip test.
+
+#### S4 — `AuthService.CreateUserAsync` adopts the ambient session
+
+- Constructor takes `IDbSessionFactory` (Shared contract — no new project
+  references). `BeginTransactionAsync` → `_sessionFactory.BeginAsync()`;
+  `sp_getapplock` (still raw ADO, now on the ambient `CurrentTransaction`),
+  invariant revalidation, `user_exists` check, user insert, and audit are
+  unchanged and all run inside one ADR-003 session; completion is
+  `session.CommitAsync()`. The early returns (`forbidden`, `user_exists`)
+  dispose without commit ⇒ rollback — identical semantics to the private
+  transaction before (transaction-owned lock released with it).
+- Wiring: Host DI factory registration passes `IDbSessionFactory`;
+  `SqlServerIntegrationTests.CreateAuth` builds the production
+  `AmbientDbSessionFactory` with both module contexts — the same
+  composition the Host registers. Regression net: the A0-3 create-user
+  tests (bootstrap window, forbidden, concurrent applock) all green.
+
+#### S5 verification sweep
+
+- `dotnet build` → 0 errors 0 warnings.
+- `dotnet test` ×2 consecutive → **148/148 each run** (14 architecture +
+  59 unit + 75 integration — +1 is the round-trip test).
+- `dotnet format --verify-no-changes` → exit 0.
+- Null-byte scan over `src`/`tests`/`docs`/HANDOFF/AGENTS/README → clean.
+- `HANDOFF.md` and `docs/HANDOFF.md` byte-identical.
+
+#### S6 close-out
+
+- Throwaway `spike-tx-sql` container removed (with its anonymous volumes);
+  the `/tmp/opencode/spiketx` scratch project was already gone. The shared
+  dev database was never a spike target.
+- **Deferrals carried, as planned:** ADR-003 "Rollback multi-module R
+  (GR/SO confirm TXN)" → A2/A3 (the two-context rollback test is the A0
+  analog); TD-10 → shipment slice; IDEM-04 HTTP 409/422 → first
+  idempotency-key-consuming endpoint; concurrent sessions within one scope
+  → out of contract (sequential per scoped request).
+- No migration, **no commit, no push** (owner instruction this session —
+  the A0-6 S3-remainder/S4 changes are in the working tree awaiting
+  authorization).
+
+## A0-7 notes (2026-11-19) — notification delivery state, A0 gate closed
+
+**Authority:** ADR-008 (accepted; its config keys and max-attempt counts are
+recommendations) + PRD PLT-051/052, TD-2/Q-5 default ("manual mark-sent OK"),
+INT-001/002/003/030. Owner approved the delivery-state migration this
+session — the open A0-6 gate item.
+
+**Files read before coding:** PRD greps — `05-01` (PLT-050…052), `07`
+(INT-001/002/003/008/030), `03` (TD-2), `13` (Q-5); `ADR/ADR-008.md` in full;
+library `workflows/implementation.md`, `general/testing.md`,
+`expertise/DOTNET_TESTING.md`, `expertise/EF_CORE.md`,
+`expertise/DOTNET_ENGINEERING.md`; sources — `SharedInfrastructureEntities`,
+`PlatformCoreDbContext`, `NotificationRaiseService`, `INotificationStore`,
+`PlatformSharedServices`, `IEmailSender`, `ServiceCollectionExtensions`,
+`AuthRateLimitOptions` (binding pattern), `SupplyForgeAuthorization`,
+`PermissionCodes`, `NotificationEndpoints`, `ApiRoutes`, `Program.cs`,
+`appsettings*.json`, `ci.yml`, Infrastructure/Application/Host csproj; tests —
+`HttpAuthMatrixTests`, `AmbientTransactionTests`, `CatalogueSeedTests`,
+`TestPermissionGrant`, `SqlServerIntegrationTests`, arch tests
+(`EndpointAuthorizationCoverage`, `DependencyDirection`).
+
+**Schema (migration `20261119033923_AddNotificationDeliveryState`, applied to
+the dev DB):** five columns on `platform.Notification` — `DeliveryStatus`
+(`nvarchar(20)`, Pending/Sent/Failed), `DeliveryAttempts`, `NextAttemptAt`,
+`SentAt`, `LastDeliveryError` (`nvarchar(500)`) — plus index
+`(DeliveryStatus, NextAttemptAt)` for the sweep predicate. Pre-existing rows
+backfill to **Pending with `NextAttemptAt NULL`**: never auto-swept (honest —
+they predate delivery tracking), closable via manual mark-sent. Down drops
+index + columns. Model snapshot regenerated with the migration.
+
+**Behavior:**
+- `Email` config section (`Mode=Fake|Disabled`, `SimulateFailures=false`,
+  `MaxAttempts=3`, `RetryBaseDelay=5s`, `RetryMaxDelay=5m`,
+  `RetryInterval=5s`), bound + validated at startup like `RateLimit`
+  (unsupported mode — e.g. ADR-008's future `Smtp` — fails closed with a
+  hint instead of silently degrading). `EmailOptions` lives in
+  PlatformCore.Application (that layer has no configuration reference); the
+  Host binds it, `FakeEmailSender` reads `SimulateFailures`.
+- Raise flow — MOD-TXN-02 shape unchanged: session commit → **inline first
+  attempt** through `NotificationDeliveryService` → outcome recorded on the
+  row. Adapter failure is state, never a 500 (PLT-052): row stays Pending
+  with `NextAttemptAt = now + backoff`; at `MaxAttempts` → **Failed**
+  (dead-letter, visible). `Email:Mode=Disabled` → the adapter is never
+  touched → **visible pending** (PLT-051), no retry ever scheduled.
+- `NotificationRetryWorker` (Host `BackgroundService`, registered
+  unconditionally): every `RetryInterval` sweeps `Pending && NextAttemptAt <=
+  now` (batch 20, soonest first) through the same delivery path —
+  exponential backoff ×2 per attempt capped at `RetryMaxDelay`, plus up to
+  20% jitter (INT-003). Sweep failures are logged, never fatal; one bad row
+  does not stall the batch. Race rule: the inline attempt owns rows with
+  `NextAttemptAt NULL`, the worker only ever sees rows the inline attempt
+  rescheduled → no double-send; Disabled mode schedules nothing, so the loop
+  is a no-op (timer tick only).
+- TD-2: `POST /api/v1/notifications/{id}/mark-sent` — Pending/Failed → Sent
+  (stale diagnosis cleared, `DeliveryAttempts` untouched — no adapter call
+  happened), already-Sent idempotent (200), unknown id → 404, transition
+  audited (`notification.mark_sent`) through the `IAuditWriter` choke point
+  (PLT-044 redaction applies). Reuses the `platform.notification.raise`
+  policy: same operator capability, and the seeded PLT-020 catalogue stays
+  at its pinned 4 codes (`CatalogueSeedTests` untouched); a dedicated
+  `platform.notification.manage` code can come with Q-5/B4 if the product
+  owner wants separation.
+- Read API: `NotificationItem` now carries `deliveryStatus`,
+  `deliveryAttempts`, `sentAt`, `lastDeliveryError` (camelCase JSON; additive
+  — existing consumers unaffected).
+
+**Tests (+21 → 169):**
+- Unit `EmailDeliveryStateTests` (9): mode validation (case-insensitive,
+  default Fake), `Smtp` rejected with the adapter hint, non-positive retry
+  knobs rejected, fake failure injection throws without recording, healthy
+  fake records, backoff doubles per attempt within the jitter band, caps at
+  `RetryMaxDelay` then jitters, zero attempts treated as first attempt.
+- Integration `NotificationDeliveryStateTests` (6, real SQL, production
+  classes): disabled-mode raise → visible pending + zero adapter calls +
+  nothing due for the sweep; injected failure → Pending with future backoff
+  (not due) → forced due → attempt 2 == max → Failed dead-letter visible in
+  the read projection; TD-2 store contract (MarkedSent ×2 with the audit row,
+  AlreadySent idempotent, NotFound) incl. cleared diagnosis and untouched
+  attempts; concurrent attempts → exactly one claim wins and the adapter is
+  called once; `INT_004` send timeout records a failure instead of hanging
+  the attempt; `INT_004` host-shutdown cancellation propagates without
+  recording an outcome.
+- Integration `NotificationDeliveryHttpTests` (2, second real Host process
+  with `Email__SimulateFailures=true`, `MaxAttempts=2`, 0.2s backoff and
+  interval): raise → **201** (failure recorded, not 500) → worker retry →
+  **Failed** with `deliveryAttempts=2` + error visible in
+  `GET /api/v1/notifications`; then TD-2 over HTTP: mark-sent recovers the
+  Failed row → Sent + `sentAt`, repeat → 200, unknown id → 404.
+- Integration `NotificationDeliveryMigrationTests` (1, real SQL): the applied
+  migration backfills a pre-existing row to visible Pending with no data loss.
+- `HttpAuthMatrixTests`: mark-sent route added to `ProtectedEndpoints` (the
+  SEC-13 401/403 theories and the INT-052 OpenAPI Bearer theory now cover
+  it); the round-trip test now asserts `deliveryStatus=Sent`,
+  `deliveryAttempts=1`, `sentAt` set — the fake-sink leg is visible as
+  recorded state, and its comment points at the new failure host for legs
+  4–5.
+- `MOD_TXN_02` (constructor changed): still proves commit-then-send, now
+  also asserts the recorded Sent/1-attempt outcome; `SqlServerIntegrationTests`
+  constructs `FakeEmailSender` with options.
+
+**Verification:** `dotnet build` → 0 errors 0 warnings · `dotnet test` ×2
+consecutive → **169/169 each run** (14 arch + 68 unit + 87 integration) ·
+`dotnet format --verify-no-changes` → exit 0 · null-byte scan clean · both
+HANDOFF copies identical · migration applied to the dev DB (owner-approved;
+CI re-applies all migrations to its ephemeral DB with no workflow change).
+No commit, no push (authorization still pending).
+
+#### A0 gate review (PRD §11.2 A0 row)
+
+| Gate item | Status | Evidence |
+|---|---|---|
+| Sign-in | ✅ | A0-1/A0-2/A0-3 HTTP tests: login 200, JWT 401 matrix, rate limits (429 + Retry-After), refresh rotation |
+| Branch isolation tests | ✅ (with recorded deferral) | A0-4 S1: BRN-011/013/014 on `DELETE /api/v1/api-keys/{id}`; BRN-012/SEC-12 foreign-branch leg → first branch-owned resource in A1 (no Branch entity exists in A0) |
+| Notification round-trip | ✅ 5 of 5 ADR-008 legs | create → 201 → read-back in the in-app API (round-trip test) · fake-sink acceptance = the awaited inline send behind the 201, now also asserted as `deliveryStatus=Sent` · mark-sent path works (`TD_2_ManualMarkSent_OnFailedRow_RecoversToSent_VisibleInReadApi` + store-contract test) · failure injection shows Failed (`PLT_052_FailureInjection_RaiseStill201_AsyncRetryDeadLettersAsFailed_VisibleInReadApi` against a failure-injected Host) — legs 4–5 delivered by A0-7 after the owner approved the migration |
+| API-key scope test | ✅ | INT-050 HTTP flow: JWT login → issue key with scopes → X-Api-Key authenticated → invalid key 401 |
+| CI green | ✅ | GitHub Actions run `44439119956` green on `main` (`bfa232b`), 2026-11-19: build, format, migrations on the ephemeral DB, full suite, container build — after CI itself caught three defects, fixed at root in `e11e940`, `393b84f`, `bfa232b` |
+
+**Requirement coverage honesty (A0 row: notifications minimal PLT-050…052 +
+email adapter fake INT-030):** PLT-050 (storage + raise + read API) ✅ ·
+INT-001/030 fake adapter, send after commit only (MOD-TXN-02) ✅ ·
+PLT-051 "else visible pending" ✅ (A0-7: `Email:Mode=Disabled` → row stays
+visible pending, zero adapter calls, never scheduled for sweep) ·
+PLT-052 "async retry, failures visible" ✅ (A0-7: `NotificationRetryWorker`
+with INT-003 backoff + jitter, max-attempts → Failed dead-letter queryable
+through the read API) · TD-2 manual mark-sent ✅ (A0-7: audited endpoint,
+Pending/Failed → Sent, idempotent, 404 unknown). INT-008's separate health
+view of failures is **not** in A0 — ADR-008 marks it "as applicable"; the
+failure state is queryable through the read API instead.
+
+**A0 gate: all five items green (closed 2026-11-19).** The previously open
+item — approve the delivery-state migration for PLT-051/052 + TD-2 — was
+**approved by the owner and delivered as A0-7** (migration
+`20261119033923_AddNotificationDeliveryState` applied to the dev DB; suite
+169/169 ×2). Remaining A0-scope deferrals are unchanged and recorded above:
+PLT-013 password reset (awaits its own migration approval), BRN-012/SEC-12
+foreign-branch leg (first branch-owned resource in A1). Commit/push
+authorization for the working tree is still pending. **Next: `/slice A1`.**

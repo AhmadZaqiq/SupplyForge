@@ -5,7 +5,7 @@ receipt → stock → sale → shipment → invoice → payment → report. One 
 three seeded branches. This is a **portfolio backend, not a certified ERP**
 (see `docs/prd/01-introduction.md`).
 
-**Status:** active development — slice **A0** in progress (increment A0-6).
+**Status:** active development — slice **A0**: increments A0-1…A0-7 done; the **A0 gate is closed** (all five PRD §11.2 items evidenced in `docs/A0-PROGRESS.md`). Next: slice A1.
 Slice-by-slice progress with evidence lives in
 [`docs/A0-PROGRESS.md`](docs/A0-PROGRESS.md); session continuity in
 [`HANDOFF.md`](HANDOFF.md).
@@ -60,25 +60,24 @@ Slice-by-slice detail with full evidence: [`docs/A0-PROGRESS.md`](docs/A0-PROGRE
 | A0-3 | Permission catalogue, role bundles, deny-default endpoint authorization (PLT-020/022), secure create-user bootstrap under `sp_getapplock`, complete HTTP 401/403 matrix (SEC-13) | Done (9/9 steps) |
 | A0-4 | Branch-isolation HTTP matrix (BRN-011/013/014), audit-log redaction (PLT-044), OpenAPI dual-auth schemes (INT-052). PLT-013 (password reset) deferred — needs migration approval | Done (PLT-013 deferred) |
 | A0-5 | GitHub Actions CI (build → format → migrations → tests → container build), `Dockerfile`, this README (NFR-061/062) | Done |
-| A0-6 | ADR-003 ambient transaction: `IDbSession` sharing one `DbConnection`/`DbTransaction` across both module DbContexts, session-then-email notification raise (MOD-TXN-02), ADR-003 "how tests prove it" table | **In progress** — S1–S3 core done (6 new tests green, incl. a root-cause fix for a concurrent idempotency-claim race); S3 HTTP round-trip test, S4–S6 remain |
+| A0-6 | ADR-003 ambient transaction: `IDbSession` sharing one `DbConnection`/`DbTransaction` across both module DbContexts, session-then-email notification raise (MOD-TXN-02), in-app notification read API, HTTP notification round-trip, `AuthService` create-user on the ambient session, ADR-003 "how tests prove it" table | Done — S1–S6; incl. a root-cause fix for a concurrent idempotency-claim race and for SqlClient connection-string password redaction breaking session begin in the live Host |
+| A0-7 | Notification delivery state (ADR-008 legs 4–5): `Email` config (`Fake`/`Disabled`, validated at startup), delivery columns + approved migration, inline post-commit attempt recording Sent/Pending/Failed, retry worker with exponential backoff + jitter → dead-letter `Failed` (PLT-052, INT-003), visible pending when email is off (PLT-051), audited TD-2 manual mark-sent endpoint, delivery status on the read API | Done — migration applied (owner-approved); closes the A0 gate |
 
-**Last verified sweep (2026-11-18):** `dotnet build` 0 errors / 0 warnings ·
-`dotnet test` **147/147** (14 architecture + 59 unit + 74 integration against
-real SQL Server) · `dotnet format --verify-no-changes` clean.
+**Last verified sweep (2026-11-20):** `dotnet build` 0 errors / 0 warnings ·
+`dotnet test` **169/169** (14 architecture + 68 unit + 87 integration against
+real SQL Server), two consecutive runs · `dotnet format --verify-no-changes`
+clean · CI green on GitHub (run `44439119956` on `main`).
 
 ### What remains
 
-- **A0-6 remainder:** HTTP round-trip test for `POST /api/v1/notifications`
-  through the real Host DI; adopt `IDbSessionFactory` in
-  `AuthService.CreateUserAsync` (S4); verification sweep (S5); close-out
-  notes and throwaway spike cleanup (S6).
-- **A0 gate review:** sign-in flow, branch-isolation tests, notification
-  round-trip, API-key scope test, first CI run green on GitHub.
+- **A0 gate: closed** — all five items (sign-in, branch isolation,
+  notification round-trip incl. the mark-sent and failure-injection legs,
+  API-key scope, CI green) are evidenced in `docs/A0-PROGRESS.md`.
 - **Then slice A1** (Master data + Inventory core). Parked on owner
   decisions: PLT-013 password reset (migration approval), BRN-012/SEC-12
   foreign-branch 404 leg (first branch-owned resource in A1), NFR-060
   compose `app` service, IDEM-04 HTTP idempotency mapping (first endpoint
-  that accepts an idempotency key).
+  that accepts an idempotency key), Q-5 email-in-P1 confirmation before B4.
 
 ## Repository map
 

@@ -31,6 +31,29 @@ public class Notification
     public string? Link { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReadAt { get; set; }
+
+    // ADR-008 / PLT-051 / PLT-052 delivery state (A0 gate round-trip legs
+    // "mark-sent path works" and "failure injection shows Failed").
+    // Pending = in-app stored, email not yet delivered (or awaiting retry);
+    // Sent = adapter accepted it or manual mark-sent (TD-2);
+    // Failed = max attempts exhausted (dead-letter, visible per INT-003).
+    public string DeliveryStatus { get; set; } = NotificationDeliveryStatus.Pending;
+    public int DeliveryAttempts { get; set; }
+    /// <summary>When the next retry is due; NULL = nothing scheduled
+    /// (initial row or terminal state — the sweep never picks it up).</summary>
+    public DateTimeOffset? NextAttemptAt { get; set; }
+    public DateTimeOffset? SentAt { get; set; }
+    /// <summary>Last adapter error, truncated (PLT-044: sender-controlled
+    /// text only, never payload or credentials).</summary>
+    public string? LastDeliveryError { get; set; }
+}
+
+/// <summary>Values of <see cref="Notification.DeliveryStatus"/> (ADR-008).</summary>
+public static class NotificationDeliveryStatus
+{
+    public const string Pending = "Pending";
+    public const string Sent = "Sent";
+    public const string Failed = "Failed";
 }
 
 public class DocumentSequence

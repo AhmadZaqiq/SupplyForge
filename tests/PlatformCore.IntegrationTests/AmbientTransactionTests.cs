@@ -191,7 +191,9 @@ public class AmbientTransactionTests
         var guard = new OpenTransactionGuardEmail(
             () => capturing.LastSession is { IsCompleted: true });
         var store = new PlatformSharedServices(pc, TimeProvider.System);
-        var service = new NotificationRaiseService(capturing, store, guard);
+        var delivery = new NotificationDeliveryService(
+            store, guard, new EmailOptions(), store, TimeProvider.System);
+        var service = new NotificationRaiseService(capturing, store, delivery);
 
         var id = await service.RaiseAsync(
             "a06.raise", "A0-6 raise", "email after commit", link: null);
@@ -204,10 +206,14 @@ public class AmbientTransactionTests
         Assert.NotNull(capturing.LastSession);
 
         // The store write really committed (not rolled back): the row is
-        // visible to a fresh context.
+        // visible to a fresh context, and the post-commit attempt recorded
+        // its outcome on that row instead of surfacing it (PLT-052).
         await using var check = CreatePlatformDb();
         var row = await check.Notifications.FirstAsync(n => n.Id == id);
         Assert.Equal("A0-6 raise", row.Title);
+        Assert.Equal(NotificationDeliveryStatus.Sent, row.DeliveryStatus);
+        Assert.Equal(1, row.DeliveryAttempts);
+        Assert.NotNull(row.SentAt);
         await check.Notifications.Where(n => n.Id == id).ExecuteDeleteAsync();
     }
 

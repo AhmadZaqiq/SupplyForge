@@ -6,6 +6,7 @@ using SupplyForge.PlatformCore.Application.Security;
 using SupplyForge.PlatformCore.Domain;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.Shared.Auditing;
+using SupplyForge.Shared.Data;
 
 namespace SupplyForge.PlatformCore.Infrastructure.Application.Auth;
 
@@ -43,6 +44,7 @@ public sealed class AuthService
     private readonly TimeProvider _clock;
     private readonly IAccessTokenIssuer _accessTokenIssuer;
     private readonly IPermissionResolver _permissionResolver;
+    private readonly IDbSessionFactory _sessionFactory;
 
     private const string UserCreateLockResource = "supplyforge.user.create";
     private const int UserCreateLockTimeoutMs = 5000;
@@ -52,13 +54,15 @@ public sealed class AuthService
         IAuditWriter audit,
         TimeProvider clock,
         IAccessTokenIssuer accessTokenIssuer,
-        IPermissionResolver permissionResolver)
+        IPermissionResolver permissionResolver,
+        IDbSessionFactory sessionFactory)
     {
         _db = db;
         _audit = audit;
         _clock = clock;
         _accessTokenIssuer = accessTokenIssuer;
         _permissionResolver = permissionResolver;
+        _sessionFactory = sessionFactory;
     }
 
     /// <summary>
@@ -69,7 +73,8 @@ public sealed class AuthService
     /// no user exists any caller may bootstrap; afterwards
     /// <paramref name="actingUserId"/> must hold <c>platform.user.manage</c>,
     /// re-resolved from current data. Insert and audit entry commit atomically
-    /// with the lock (transaction-owned lock, released on commit/rollback).
+    /// inside the ADR-003 ambient session (A0-6 S4) with the lock
+    /// (transaction-owned lock, released on commit/rollback).
     /// </summary>
     public async Task<CreateUserResult> CreateUserAsync(
         string userName,
@@ -86,10 +91,13 @@ public sealed class AuthService
             return new CreateUserResult(Guid.Empty, false, "validation_failed");
         }
 
-        // One transaction owns lock + revalidation + insert + audit. A0 has no
-        // ambient cross-module transaction yet (ADR-003 joins arrive with
-        // A0-6), so beginning one here is safe.
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        // One ADR-003 ambient session owns lock + revalidation + insert +
+        // audit (A0-6 S4): the session joins this context (and Integrations)
+        // on one shared connection/transaction, so sp_getapplock below stays
+        // transaction-owned and the user + audit rows commit atomically.
+        // Early returns dispose without commit ⇒ rollback — the same
+        // semantics the private BeginTransactionAsync had before A0-6.
+        await using var session = await _sessionFactory.BeginAsync(cancellationToken);
         await AcquireUserCreateLockAsync(cancellationToken);
 
         var anyUser = await _db.Users.AnyAsync(cancellationToken);
@@ -122,13 +130,13 @@ public sealed class AuthService
         _db.Users.Add(user);
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Same DbContext as the user insert → same transaction: a created
+        // Same DbContext as the user insert → same session: a created
         // user can never exist without its audit entry.
         await _audit.WriteAsync(
             "user", user.Id.ToString(), "user.created", "User", user.Id.ToString(),
             null, null, cancellationToken);
 
-        await transaction.CommitAsync(cancellationToken);
+        await session.CommitAsync(cancellationToken);
         return new CreateUserResult(user.Id, true, null);
     }
 

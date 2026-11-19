@@ -16,6 +16,9 @@ public static class ApiRoutes
     {
         public const string Mine = V1 + "/notifications";
         public const string Read = V1 + "/notifications/{id}/read";
+
+        /// <summary>TD-2 manual mark-sent (ADR-008 explicit workflow).</summary>
+        public const string MarkSent = V1 + "/notifications/{id}/mark-sent";
     }
 
     public static class Health
