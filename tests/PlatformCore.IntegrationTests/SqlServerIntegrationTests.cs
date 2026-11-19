@@ -199,9 +199,14 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         // window is closed on a database that has users, and no actor means
         // no platform.user.manage — the create must be rejected even though
         // the endpoint policy would have been the only other gate.
+        // The precondition (at least one user exists) is established here so
+        // the test holds on a fresh ephemeral CI database, not only on the
+        // shared dev database where users already exist.
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var (managerId, grantId) = await CreateManagerAsync(suffix);
+
         await using var db = CreatePlatformDb();
         var auth = CreateAuth(db);
-        var suffix = Guid.NewGuid().ToString("N")[..8];
 
         var denied = await auth.CreateUserAsync(
             $"bf_{suffix}", $"{suffix}@test.local", "Passw0rd!x", "Blocked", actingUserId: null);
@@ -213,6 +218,9 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         // Nothing was written: no user row for the rejected create.
         await using var db2 = CreatePlatformDb();
         Assert.False(await db2.Users.AnyAsync(x => x.UserName == $"bf_{suffix}"));
+
+        await RemoveManagerAsync(db2, managerId, grantId);
+        await db2.SaveChangesAsync();
     }
 
     [Fact]
