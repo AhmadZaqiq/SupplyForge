@@ -129,6 +129,17 @@ Artifacts of the last run live in `.git/checkpoint/` (never committable):
 `last-quota.txt`, `last-verification.txt`, `last-verify-output.txt`,
 `last-diff.txt`, `last-report.txt`.
 
+**Regression tests:** `scripts/checkpoint-selftest.sh` re-runs every guard
+above inside throwaway repositories under `$TMPDIR` (19 cases: `.env`,
+blanket paths, missing/stale verification, private-key content, both HANDOFF
+states, missing message, dry-run, `--skip-push`, a full push against a local
+bare `origin`, and a failed push). Run it after any change to
+`checkpoint.sh`:
+
+```bash
+scripts/checkpoint-selftest.sh     # exit 0 = all guards behave
+```
+
 ---
 
 ## 6. After the checkpoint
@@ -165,9 +176,11 @@ Verified on 2026-11-19, Ubuntu, `opencode v2.3.2`, git 2.53:
 | `quota-status.sh --json` | raw payload matches the documented schema |
 | `checkpoint.sh --help` | prints usage |
 | `checkpoint.sh --verify-only` | quota snapshot printed, `verification: PASS` in 11.4 s, record written |
-| `checkpoint.sh` dry-run and full run | see HANDOFF "status" row for this workflow |
+| `checkpoint.sh --dry-run` (workflow files) | exit 0; exactly the 7 intended files staged, all guards passed |
+| `checkpoint.sh` live run (workflow files only) | the push **did** succeed — `ls-remote` showed local == remote `94b1263` — but the final report printed the failure block. Cause: `[ "$x" != VERIFIED* ]` compares the glob **literally** in bash `test`, so the success branch was skipped. Fixed by switching to `case`, and locked in by the self-test cases below |
+| `scripts/checkpoint-selftest.sh` | **19/19 pass** — every guard plus the `--skip-push` (SKIPPED), verified-push (VERIFIED) and failed-push (exit 6) branches, each in a throwaway repo with a local bare `origin` |
 
-Not tested: exit codes 10/20 (no meter data exists on this machine), exit 6/7
-(push failure and behind-origin paths), because reproducing them would require
-hitting a real limit or a diverged remote. Those branches are code-reviewed,
+Not tested: exit codes 10/20 (no meter data exists on this machine) and exit 7
+(local branch behind origin), because reproducing them would require hitting a
+real usage limit or a diverged remote. Those two branches are code-reviewed,
 not executed.

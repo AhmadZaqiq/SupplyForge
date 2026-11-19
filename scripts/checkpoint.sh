@@ -398,7 +398,8 @@ REPORT="$CKPT_DIR/last-report.txt"
 cat "$REPORT"
 note ""
 
-if [ "$PUSH_STATE" = SKIPPED* ]; then
+case "$PUSH_STATE" in
+SKIPPED*)
   cat <<EOF
 NEXT STEPS (checkpoint incomplete — local only):
   1. Push when ready:  git push origin HEAD:refs/heads/$BRANCH
@@ -407,10 +408,14 @@ NEXT STEPS (checkpoint incomplete — local only):
   2. Re-read the HANDOFF files to confirm they describe this commit.
   3. Do not start new tasks if the quota warning above is active.
 EOF
-  exit 0
-fi
+  exit 0 ;;
+esac
 
-if [ "$PUSH_STATE" != VERIFIED* ]; then
+# NOTE: use `case`, not [ "$x" != VERIFIED* ] — bash's test(1) compares the
+# right operand literally, so the glob never matches (regression: self-test).
+case "$PUSH_STATE" in
+VERIFIED*) ;;
+*)
   cat <<EOF
 CHECKPOINT FAILED AT THE LAST STEP — the work is committed locally but the
 remote does NOT have it (or it was not verified).
@@ -421,8 +426,8 @@ remote does NOT have it (or it was not verified).
   If the push is rejected because origin moved, pull/rebase with owner approval.
   Never force-push.
 EOF
-  exit 6
-fi
+  exit 6 ;;
+esac
 
 cat <<EOF
 CHECKPOINT VERIFIED — safe to stop here.
