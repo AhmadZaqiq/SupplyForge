@@ -1,6 +1,6 @@
 # SupplyForge — Handoff (read this first)
 
-Written: 2026-11-16. Last updated: 2026-11-18. Put this file at `docs/HANDOFF.md` in the project.
+Written: 2026-11-16. Last updated: 2026-11-19. Put this file at `docs/HANDOFF.md` in the project.
 If you are an AI picking this work up: read this file fully, then follow section 10. Do not assume any step in section 2 "Pending" has been done. Check the disk.
 
 ## 1. What the owner is doing
@@ -25,10 +25,11 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 | OpenCode loads the library rules through `instructions` | **Verified** in live sessions (library rules present in session instructions) |
 | `ADR/`, `docs/Decision Register.md` | **Present.** ADR-001…006, 008, 009 drafted and **Accepted by the owner 2026-11-16**. Decision Register created. ADR-007 and ADR-010…016 **not drafted yet** (write them when their slice needs them). `adr-review-report.md` reflects the acceptance |
 | `SF.png` | **Missing.** The owner will add it later; references stay as they are |
-| Application code | **M0 + A0 foundations.** M0-0…M0-5, A0-1 (JWT), A0-2/A0-2b (rate limiting + defect fix), A0-3 (permission catalogue/role bundles, create-user bootstrap, deny-default authorization — 9/9 steps), A0-4 (BRN HTTP matrix, PLT-044 redaction, INT-052 OpenAPI security schemes), A0-5 (CI workflow + README) — all **done**. **A0-6 (ADR-003 ambient session) in progress:** S1 `AmbientDbSession`/`AmbientDbSessionFactory`, S2 session-then-email `NotificationRaiseService`, S3 core test table green (6/6, incl. IDEM-05 race fix) — S3 HTTP round-trip test + S4–S6 remaining. PLT-013 deferred by owner decision (migration not approved). Slices A1…B4 not started. Status detail: `docs/A0-PROGRESS.md` |
+| Application code | **M0 + A0 foundations.** M0-0…M0-5, A0-1 (JWT), A0-2/A0-2b (rate limiting + defect fix), A0-3 (permission catalogue/role bundles, create-user bootstrap, deny-default authorization — 9/9 steps), A0-4 (BRN HTTP matrix, PLT-044 redaction, INT-052 OpenAPI security schemes), A0-5 (CI workflow + README; **CI green on GitHub** since run `44439119956`, 2026-11-19), A0-6 (ADR-003 ambient session S1–S6 incl. HTTP notification round-trip + `AuthService` on the session; sweep 148/148 ×2), A0-7 (notification delivery state — PLT-051 visible pending, PLT-052 retry worker → dead-letter `Failed`, TD-2 audited mark-sent, delivery fields on the read API; owner-approved migration `20261119033923_AddNotificationDeliveryState` applied to the dev DB; sweep **164/164 ×2**) — all **done**. **A0 gate: closed** — all five PRD §11.2 items evidenced in the `docs/A0-PROGRESS.md` gate review. PLT-013 deferred by owner decision (migration not approved). Slices A1…B4 not started. Status detail: `docs/A0-PROGRESS.md` |
 | Git | Initial commit on `main`; owner-approved publish to `https://github.com/AhmadZaqiq/SupplyForge` (2026-11-18). The earlier "do not commit for now" instruction is superseded |
+| Pre-quota checkpoint workflow | **Done.** `scripts/quota-status.sh` reads the official `GET /api/experimental/usage/limits`. On this machine it exits **3 (unknown)** — signed in to workspace `Personal`, but no Go meters and no budgets, so **no number is guessed**; the fallback trigger is a usage-limit response from the provider. `scripts/checkpoint.sh` runs verify → `git status` + full diff → explicit-path staging → secret/artifact guards → both-HANDOFF guard → commit → push (never force) → `ls-remote` SHA proof. Docs `docs/pre-quota-checkpoint.md`; commands `/quota`, `/checkpoint`. Verified 2026-11-19: `--verify-only` PASS (11.4 s), guards exercised (exit 5 while HANDOFF was unchanged). Exit 10/20 (no meter data exists) and 6/7 (push failure / behind origin) were **not** executed — code-reviewed only. Detail: section 11 |
 
-Pending, in order: finish A0-6 (S3 HTTP round-trip test → S4 adopt the session in `AuthService.CreateUserAsync` → S5 sweep: build / test ×2 / format / null-byte scan → S6 close-out + remove the throwaway `spike-tx-sql` container) → close the A0 gate evidence → `/slice A1` (ask about OD-03/TD-5 before any costing code; PLT-013 waits on migration approval).
+Pending, in order: **commit/push authorization** for the working tree — A0-6 S3-remainder/S4 **and** A0-7 delivery-state changes (read API, round-trip test, `AuthService` session adoption, connection-string redaction fix, the approved migration, delivery-state code + tests) are all uncommitted → then `/slice A1` (the **A0 gate is closed**; ask about OD-03/TD-5 before any costing code; PLT-013 waits on migration approval; Q-5 email-in-P1 confirm before B4).
 
 ## 3. Environment
 
@@ -45,7 +46,12 @@ SupplyForge/
 ├─ AGENTS.md                      project rules: stack, architecture, reading protocol, stop-and-ask
 ├─ .opencode/commands/
 │   ├─ slice.md                   /slice A2  → reads the right PRD files, proposes a plan, waits
-│   └─ req.md                     /req INV-014 → grep + read only the section, no edits
+│   ├─ req.md                     /req INV-014 → grep + read only the section, no edits
+│   ├─ quota.md                   /quota → scripts/quota-status.sh, report the exit code
+│   └─ checkpoint.md              /checkpoint → guarded pre-quota checkpoint sequence
+├─ scripts/
+│   ├─ quota-status.sh            official OpenCode usage-limit query (exit 0/10/20/3)
+│   └─ checkpoint.sh              verify → inspect → stage explicit paths → guards → commit → push → prove
 ├─ my-ai-knowledge/               the owner's library (generic, reusable)
 │   ├─ AGENTS.md                  17 always-on rules + loading index (task → file)
 │   ├─ general/                   principles, security, testing, git-workflow, observability-and-operations
@@ -61,6 +67,7 @@ SupplyForge/
 ├─ docs/
 │   ├─ HANDOFF.md                 this file
 │   ├─ A0-PROGRESS.md             increment log: status + evidence
+│   ├─ pre-quota-checkpoint.md    quota triggers, checkpoint sequence, guards
 │   ├─ Decision Register.md, adr-review-report.md
 │   └─ prd/
 │       ├─ INDEX.md               start here for requirements
@@ -107,7 +114,7 @@ cd ~/SupplyForge
 code .          # then Ctrl+` for the integrated terminal, and type: opencode
 ```
 
-Inside OpenCode: `/slice A0` … `/slice B4`, `/req <ID>`. Built-ins include `/undo`, `/redo`, `/share`, `/help`. **Do not run `/init`**: it generates an `AGENTS.md` and this project already has a curated one.
+Inside OpenCode: `/slice A0` … `/slice B4`, `/req <ID>`, plus this project's `/quota` (read the usage limit) and `/checkpoint` (run the safe pre-quota checkpoint, section 11). Built-ins include `/undo`, `/redo`, `/share`, `/help`. **Do not run `/init`**: it generates an `AGENTS.md` and this project already has a curated one.
 
 VS Code shortcuts (OpenCode extension): `Ctrl+Esc` open OpenCode in a split terminal, `Ctrl+Shift+Esc` new session, `Alt+Ctrl+K` insert a file reference like `@File#L37-42`. `Ctrl+Shift+G` opens Source Control (diffs).
 
@@ -161,6 +168,7 @@ If #3 fails: section 8 item 4. If the VS Code extension does not install: run `o
 6. Do not read the whole PRD or the whole library. State which files you read before you write code.
 7. Do not claim anything about OpenCode behaviour that you did not verify; the official docs are at https://opencode.ai/docs (rules, permissions, commands, ide, skills) and VS Code Linux setup at https://code.visualstudio.com/docs/setup/linux.
 8. Optional later improvement, not required: turn the library workflows into OpenCode skills (`SKILL.md` under `.opencode/skills/` or `~/.config/opencode/skills/`) so the agent discovers them by description. Verify the current skills docs first.
+9. Before starting any substantial task, run `scripts/quota-status.sh` (or `/quota`) and report the exit code. If it warns (10), is exhausted (20), or a usage-limit response arrives, **stop starting tasks** and follow section 11 — never leave the working tree uncommitted.
 
 ### Paste this into another AI or a fresh OpenCode session
 
@@ -168,3 +176,22 @@ If #3 fails: section 8 item 4. If the VS Code extension does not install: run `o
 Read docs/HANDOFF.md fully, then AGENTS.md. Check the disk for what is actually done (section 9 #1-#2).
 Tell me what is done, what is broken, and the next step. Do not write code yet.
 ```
+
+## 11. Pre-quota checkpoint (protect the work)
+
+Full detail: `docs/pre-quota-checkpoint.md`. Commands: `scripts/quota-status.sh`, `scripts/checkpoint.sh`, `/quota`, `/checkpoint`. This is tooling and documentation only — it changes no application code and no PRD requirement.
+
+**Where the number comes from.** Official endpoint: `opencode api GET /api/experimental/usage/limits` (operation `experimental.usage.limits`) returns the OpenCode Go allowance meters (`rolling`/`weekly`/`monthly`, each `percent` + `limited`) and Console budgets. On this machine it returns workspace `Personal` with **no meters and no budgets**, so `scripts/quota-status.sh` exits **3 (unknown)** and prints no number. **Do not estimate one** from `opencode stats`, token counts or elapsed time. The fallback trigger is a usage-limit response from the provider (HTTP 429 / a "usage limit" error).
+
+**When a trigger fires** (exit 10 warning, exit 20 exhausted, or a usage-limit response):
+
+1. Stop starting new tasks. Bring the current operation to a consistent point (nothing half-edited, project still builds).
+2. `scripts/checkpoint.sh --verify-only` — fastest relevant verification (`dotnet build`, ~11 s incremental; `--verify-cmd "dotnet test ..."` if tests are wanted).
+3. Update **both** `HANDOFF.md` and `docs/HANDOFF.md`: completed work, verification result, current state, exact next steps. The script refuses to run if either is unstaged or unchanged.
+4. Agree the exact path list with the owner. Never `git add -A`.
+5. `scripts/checkpoint.sh --message "<title with the requirement ID>" -- <paths>` — prints `git status --porcelain` and the complete diff, stages only those paths, refuses `.env`/`secrets.json`/keys/databases/build artifacts/archives/`SupplyForge.zip`, commits, pushes **without force**, then proves with `git ls-remote` that the remote SHA equals the local SHA.
+6. Only call it a checkpoint when the report says `VERIFIED — remote SHA matches local commit`. Otherwise report exactly where it stopped (exit codes are in `scripts/checkpoint.sh --help`).
+
+**Safety.** Never force-push, never rewrite history, never reset/restore/delete to make a checkpoint pass. Commit and push still need owner approval (project `AGENTS.md`) — the script automates the sequence, not the permission. Last-run artefacts are in `.git/checkpoint/` (inside `.git`, never committable).
+
+**If the quota runs out mid-task:** `git fetch origin && git status`, read these HANDOFF files, confirm the tree is clean, and continue from the last verified GitHub checkpoint. Nothing is lost as long as that checkpoint was verified.
