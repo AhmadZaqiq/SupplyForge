@@ -26,6 +26,12 @@ public sealed class FailClosedAuthHttpTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // Bootstrap-window precondition (CI's ephemeral database starts with
+        // zero users, where POST /users would answer 201 instead of 401/403):
+        // no-op on the shared dev database. See TestUsers for why the guard
+        // user is not removed afterwards.
+        await TestUsers.EnsureAtLeastOneUserAsync();
+
         var dll = FindHostDll();
         var hostDir = Path.GetDirectoryName(dll)!;
         ReadHostAuthConfig(hostDir);
@@ -151,9 +157,10 @@ public sealed class FailClosedAuthHttpTests : IAsyncLifetime
     {
         // A0-3 Step 4: the named create-user policy now applies its bootstrap
         // handler — anonymous creation is allowed only while the Users table
-        // is empty, and the shared test database has users (401, SEC-13).
-        // The empty-window allow-path cannot be HTTP-tested without emptying
-        // a shared database, so it is proven at unit level
+        // is empty; the class initializer guarantees at least one user exists
+        // (401, SEC-13) on any database, fresh or shared. The empty-window
+        // allow-path cannot be HTTP-tested without emptying a shared
+        // database, so it is proven at unit level
         // (FailClosedAuthorizationTests / CreateUserAuthorizationTests).
         var suffix = Guid.NewGuid().ToString("N")[..8];
 

@@ -37,6 +37,12 @@ public sealed class HttpAuthMatrixTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // Bootstrap-window precondition (CI's ephemeral database starts with
+        // zero users, where POST /users would answer 201 instead of 401/403):
+        // no-op on the shared dev database. See TestUsers for why the guard
+        // user is not removed afterwards.
+        await TestUsers.EnsureAtLeastOneUserAsync();
+
         var dll = FindHostDll();
         var hostDir = Path.GetDirectoryName(dll)!;
         ReadHostAuthConfig(hostDir);
