@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Modules\PlatformCore\SupplyForge.PlatformCore.Infrastructure\SupplyForge.PlatformCore.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Integrations\SupplyForge.Integrations.Infrastructure\SupplyForge.Integrations.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\MasterData\SupplyForge.MasterData.Infrastructure\SupplyForge.MasterData.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Shared\SupplyForge.Shared\SupplyForge.Shared.csproj" />
     <ProjectReference Include="..\..\Modules\PlatformCore\SupplyForge.PlatformCore.Application\SupplyForge.PlatformCore.Application.csproj" />
   </ItemGroup>

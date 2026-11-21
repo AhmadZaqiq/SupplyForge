@@ -2,63 +2,64 @@ using System.Data.Common;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
-using SupplyForge.Integrations.Infrastructure.Data;
-using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.Shared.Data;
 
 namespace SupplyForge.Host.Data;
 
 /// <summary>
 /// ADR-003 ambient session (Option B): one shared <see cref="DbConnection"/>
-/// and <see cref="DbTransaction"/> join the PlatformCore and Integrations
-/// DbContexts so a multi-module write is a single SQL Server transaction
-/// (MOD-TXN-01/04 — no distributed transactions). The factory enlists both
-/// contexts when the session begins; the owner commits or rolls back once;
-/// every completion path — commit, rollback, and dispose-without-commit —
-/// funnels into one idempotent cleanup.
+/// and <see cref="DbTransaction"/> join every module DbContext into a single
+/// SQL Server transaction (MOD-TXN-01/04 — no distributed transactions). The
+/// factory enlists all contexts when the session begins; the owner commits or
+/// rolls back once; every completion path — commit, rollback, and
+/// dispose-without-commit — funnels into one idempotent cleanup.
+///
+/// <para>
+/// A1-1 generalized this from the original two contexts to N: a module joins
+/// simply by being handed to <see cref="AmbientDbSessionFactory"/>. The Host
+/// stays the only composition root (MOD-1), so the list of joined contexts is
+/// declared there. Every joined context must share one connection string —
+/// there is exactly one shared connection, so two different target databases
+/// could not both be reached through it.
+/// </para>
 /// </summary>
 public sealed class AmbientDbSession : IDbSession
 {
-    private readonly PlatformCoreDbContext _platform;
-    private readonly IntegrationsDbContext _integrations;
-    private readonly string _platformConnectionString;
-    private readonly string _integrationsConnectionString;
+    private readonly DbContext[] _contexts;
+    private readonly string[] _connectionStrings;
     private readonly DbConnection _shared;
     private readonly DbTransaction _transaction;
-    private IDbContextTransaction? _platformEnlistment;
-    private IDbContextTransaction? _integrationsEnlistment;
+    private readonly IDbContextTransaction?[] _enlistments;
     private bool _completed;
     private bool _cleaned;
 
     internal AmbientDbSession(
-        PlatformCoreDbContext platform,
-        IntegrationsDbContext integrations,
-        string platformConnectionString,
-        string integrationsConnectionString,
+        DbContext[] contexts,
+        string[] connectionStrings,
         DbConnection shared,
         DbTransaction transaction)
     {
-        _platform = platform;
-        _integrations = integrations;
-        _platformConnectionString = platformConnectionString;
-        _integrationsConnectionString = integrationsConnectionString;
+        _contexts = contexts;
+        _connectionStrings = connectionStrings;
         _shared = shared;
         _transaction = transaction;
+        _enlistments = new IDbContextTransaction?[contexts.Length];
     }
 
     public bool IsCompleted => _completed;
 
     /// <summary>
-    /// Attaches both contexts to the shared connection and transaction
+    /// Attaches every context to the shared connection and transaction
     /// (spike case B: SetDbConnection + UseTransaction on each context —
     /// a transaction from a different connection is rejected by ADO/EF).
     /// </summary>
     internal async Task JoinAsync(CancellationToken cancellationToken)
     {
-        _platform.Database.SetDbConnection(_shared);
-        _integrations.Database.SetDbConnection(_shared);
-        _platformEnlistment = await _platform.Database.UseTransactionAsync(_transaction, cancellationToken);
-        _integrationsEnlistment = await _integrations.Database.UseTransactionAsync(_transaction, cancellationToken);
+        for (var i = 0; i < _contexts.Length; i++)
+        {
+            _contexts[i].Database.SetDbConnection(_shared);
+            _enlistments[i] = await _contexts[i].Database.UseTransactionAsync(_transaction, cancellationToken);
+        }
     }
 
     public async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -131,20 +132,20 @@ public sealed class AmbientDbSession : IDbSession
 
         _cleaned = true;
 
-        if (_platformEnlistment is not null)
+        for (var i = 0; i < _enlistments.Length; i++)
         {
-            await _platformEnlistment.DisposeAsync();
-        }
-
-        if (_integrationsEnlistment is not null)
-        {
-            await _integrationsEnlistment.DisposeAsync();
+            if (_enlistments[i] is not null)
+            {
+                await _enlistments[i]!.DisposeAsync();
+            }
         }
 
         await _transaction.DisposeAsync();
 
-        _platform.Database.SetDbConnection(new SqlConnection(_platformConnectionString));
-        _integrations.Database.SetDbConnection(new SqlConnection(_integrationsConnectionString));
+        for (var i = 0; i < _contexts.Length; i++)
+        {
+            _contexts[i].Database.SetDbConnection(new SqlConnection(_connectionStrings[i]));
+        }
 
         await _shared.DisposeAsync();
     }
@@ -152,21 +153,30 @@ public sealed class AmbientDbSession : IDbSession
 
 /// <summary>
 /// Starts the ambient session (ADR-003, NFR-043 item 5). Host owns this
-/// composition because it is the only project that may reference both
-/// module DbContexts (MOD-1 acyclic module graph — PlatformCore must not
-/// reference Integrations). Both contexts are configured with the same
-/// connection string (one SQL Server, per-module schemas), so a single
-/// shared connection and transaction cover both.
+/// composition because it is the only project that may reference the module
+/// DbContexts (MOD-1 acyclic module graph — PlatformCore must not reference
+/// Integrations, MasterData must not reference either). All contexts are
+/// configured with the same connection string (one SQL Server, per-module
+/// schemas), so a single shared connection and transaction cover all of them.
 /// </summary>
 public sealed class AmbientDbSessionFactory : IDbSessionFactory
 {
-    private readonly PlatformCoreDbContext _platform;
-    private readonly IntegrationsDbContext _integrations;
+    private readonly DbContext[] _contexts;
 
-    public AmbientDbSessionFactory(PlatformCoreDbContext platform, IntegrationsDbContext integrations)
+    /// <param name="contexts">
+    /// Every module DbContext to enlist, in any order. The Host declares the
+    /// list; tests may pass the subset they exercise.
+    /// </param>
+    public AmbientDbSessionFactory(params DbContext[] contexts)
     {
-        _platform = platform;
-        _integrations = integrations;
+        if (contexts.Length == 0)
+        {
+            throw new ArgumentException(
+                "The ambient session needs at least one DbContext to enlist.",
+                nameof(contexts));
+        }
+
+        _contexts = contexts;
     }
 
     public async Task<IDbSession> BeginAsync(CancellationToken cancellationToken = default)
@@ -180,22 +190,31 @@ public sealed class AmbientDbSessionFactory : IDbSessionFactory
         // failed for user 'sa'" — found by the A0-6 HTTP round-trip test).
         // Database.GetConnectionString() reads the unchanged configured
         // value, which is also what the post-session restore needs.
-        var platformConnectionString = RequireConnectionString(_platform.Database.GetConnectionString());
-        var integrationsConnectionString = RequireConnectionString(_integrations.Database.GetConnectionString());
+        var connectionStrings = new string[_contexts.Length];
+        for (var i = 0; i < _contexts.Length; i++)
+        {
+            connectionStrings[i] = RequireConnectionString(_contexts[i].Database.GetConnectionString());
+        }
 
-        var shared = new SqlConnection(platformConnectionString);
+        // One shared connection ⇒ one target database. Two different strings
+        // would silently pin every context to the first one's database.
+        for (var i = 1; i < _contexts.Length; i++)
+        {
+            if (!string.Equals(connectionStrings[i], connectionStrings[0], StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The ambient session requires every joined DbContext to use the same connection string, " +
+                    $"but {_contexts[i].GetType().Name} targets a different database than {_contexts[0].GetType().Name}.");
+            }
+        }
+
+        var shared = new SqlConnection(connectionStrings[0]);
         AmbientDbSession? session = null;
         try
         {
             await shared.OpenAsync(cancellationToken);
             var transaction = await shared.BeginTransactionAsync(cancellationToken);
-            session = new AmbientDbSession(
-                _platform,
-                _integrations,
-                platformConnectionString,
-                integrationsConnectionString,
-                shared,
-                transaction);
+            session = new AmbientDbSession(_contexts, connectionStrings, shared, transaction);
             await session.JoinAsync(cancellationToken);
             return session;
         }

@@ -10,18 +10,36 @@ public class DependencyDirectionTests
     [
         "SupplyForge.PlatformCore.Contracts",
         "SupplyForge.Integrations.Contracts",
+        "SupplyForge.MasterData.Contracts",
     ];
 
+    // ADR-001 §PRD-confirmed 2: a contract assembly is a leaf — no outward
+    // reference to any module implementation or to any other contracts
+    // assembly (DM-8: no shared contracts assembly, so there is nothing
+    // legitimate for a contracts assembly to point at).
     private static readonly string[] ForbiddenForContracts =
     [
         "SupplyForge.PlatformCore",
         "SupplyForge.PlatformCore.Infrastructure",
         "SupplyForge.Integrations",
         "SupplyForge.Integrations.Infrastructure",
+        "SupplyForge.MasterData",
+        "SupplyForge.MasterData.Infrastructure",
+        "SupplyForge.PlatformCore.Contracts",
+        "SupplyForge.Integrations.Contracts",
+        "SupplyForge.MasterData.Contracts",
         "SupplyForge.Shared",
         "SupplyForge.Host",
         "Microsoft.EntityFrameworkCore",
         "Microsoft.AspNetCore",
+    ];
+
+    // MOD-1 / MOD-5: module implementation assemblies, pairwise disjoint.
+    private static readonly string[][] ModuleImplementations =
+    [
+        ["SupplyForge.PlatformCore", "SupplyForge.PlatformCore.Infrastructure"],
+        ["SupplyForge.Integrations", "SupplyForge.Integrations.Infrastructure"],
+        ["SupplyForge.MasterData", "SupplyForge.MasterData.Infrastructure"],
     ];
 
     [Fact]
@@ -44,37 +62,30 @@ public class DependencyDirectionTests
     [Fact]
     public void MOD_001_ModulesDoNotReferenceOtherModuleImplementations()
     {
-        // PlatformCore must not depend on Integrations (or vice versa), including via Infrastructure.
-        var platform = new[]
+        // MOD-1 / MOD-5: no module references another module's implementation,
+        // in either direction, including via Infrastructure. Generalised in A1-1
+        // from the original PlatformCore × Integrations pair to every pair of
+        // module assemblies (MOD-10: the arch tests grow with the module graph).
+        foreach (var module in ModuleImplementations)
         {
-            "SupplyForge.PlatformCore",
-            "SupplyForge.PlatformCore.Infrastructure",
-        };
-        var integrations = new[]
-        {
-            "SupplyForge.Integrations",
-            "SupplyForge.Integrations.Infrastructure",
-        };
-
-        foreach (var name in platform)
-        {
-            var refs = Load(name).GetReferencedAssemblies().Select(a => a.Name ?? string.Empty);
-            foreach (var other in integrations)
+            foreach (var name in module)
             {
-                Assert.False(
-                    refs.Contains(other, StringComparer.OrdinalIgnoreCase),
-                    $"{name} must not reference {other}");
-            }
-        }
+                var refs = Load(name).GetReferencedAssemblies().Select(a => a.Name ?? string.Empty).ToList();
 
-        foreach (var name in integrations)
-        {
-            var refs = Load(name).GetReferencedAssemblies().Select(a => a.Name ?? string.Empty);
-            foreach (var other in platform)
-            {
-                Assert.False(
-                    refs.Contains(other, StringComparer.OrdinalIgnoreCase),
-                    $"{name} must not reference {other}");
+                foreach (var other in ModuleImplementations)
+                {
+                    if (ReferenceEquals(other, module))
+                    {
+                        continue;
+                    }
+
+                    foreach (var otherName in other)
+                    {
+                        Assert.False(
+                            refs.Contains(otherName, StringComparer.OrdinalIgnoreCase),
+                            $"{name} must not reference {otherName}");
+                    }
+                }
             }
         }
     }
@@ -94,6 +105,9 @@ public class DependencyDirectionTests
                      "SupplyForge.Integrations",
                      "SupplyForge.Integrations.Contracts",
                      "SupplyForge.Integrations.Infrastructure",
+                     "SupplyForge.MasterData",
+                     "SupplyForge.MasterData.Contracts",
+                     "SupplyForge.MasterData.Infrastructure",
                      "SupplyForge.Host",
                  })
         {
@@ -127,6 +141,9 @@ public class DependencyDirectionTests
             "SupplyForge.Integrations.Contracts",
             "SupplyForge.Integrations",
             "SupplyForge.Integrations.Infrastructure",
+            "SupplyForge.MasterData.Contracts",
+            "SupplyForge.MasterData",
+            "SupplyForge.MasterData.Infrastructure",
             "SupplyForge.Host",
         };
 
@@ -156,6 +173,9 @@ public class DependencyDirectionTests
                      "SupplyForge.Integrations",
                      "SupplyForge.Integrations.Contracts",
                      "SupplyForge.Integrations.Infrastructure",
+                     "SupplyForge.MasterData",
+                     "SupplyForge.MasterData.Contracts",
+                     "SupplyForge.MasterData.Infrastructure",
                  })
         {
             var refs = Load(module).GetReferencedAssemblies().Select(a => a.Name ?? string.Empty);

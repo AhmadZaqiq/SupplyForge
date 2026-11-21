@@ -1,0 +1,292 @@
+# A1 Progress — SupplyForge
+
+Slice: **A1 Master + Inventory core** (PRD §11.2). Created: 2026-11-20.
+Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
+status only; it is not a requirements source.
+
+**Files read before planning:** `AGENTS.md` (root), `HANDOFF.md`,
+`docs/prd/INDEX.md`, `docs/prd/00-how-to-use.md`, `03-constraints-assumptions-defaults.md`,
+`04a-module-map-and-rules.md`, `04c-idempotency-transactions-outbox.md`,
+`05-01-platform-core-PLT.md`, `05-02-master-data-MD.md`, `05-03-inventory-INV.md`,
+`06a-global-invariants-location-negative-stock.md`, `06d-security-and-privacy.md`,
+`09-data.md`, `10-testing-acceptance.md`, `11-delivery-plan.md`,
+`ADR/ADR-001.md`, `docs/Decision Register.md`. Library files: **none opened this
+slice** — the always-on rules in `my-ai-knowledge/AGENTS.md` (already loaded) cover
+this work; no row of its index matched beyond them.
+
+---
+
+## 0. Blocked on the owner (not implemented, not guessed)
+
+A1's acceptance gate in `11-delivery-plan.md` names five items. Three cannot be
+built without a mechanism the PRD does not define. Per project `AGENTS.md`
+("do not invent the mechanism") and PRD §0 rule 3, these are **documented, not
+implemented**, and all unrelated A1 work continues.
+
+| # | Requirement | Blocker | Evidence | Options | Consequence of each option |
+|---|---|---|---|---|---|
+| B1 | **PLT-030…034 approval engine**, **INV-041** (adjustment above threshold → approval; creator cannot approve) — gate item *"INV-041 via approval engine"* | **ADR-007 not drafted** (`docs/Decision Register.md`: "Not drafted"; `ADR/` has 001–006, 008, 009 only) | PRD `05-01` PLT-030…034; `05-03` INV-041; `11` A1 row; `DM-2` entities `ApprovalPolicy/Step/Request/Decision` exist as names only | (a) Owner drafts/accepts ADR-007 → I implement. (b) Owner approves me drafting ADR-007 as a **proposal** for review first. (c) Ship A1 without INV-041 and re-test the gate later. | (a) unblocks the full gate. (b) fastest, but the mechanism is still owner-approved before code. (c) A1 gate stays partially unevidenced. |
+| B2 | **SEC-40** logo upload (authenticated, non-public retrieval, type+size limits) — gate item *"logo upload tests"* | **ADR-011 not drafted** (Decision Register: "Not drafted"; `11` says "logo upload (SEC-40 narrowed scope — ADR-011)") | PRD `06d` §6.7.5 SEC-40; `11` A1 row | (a) Owner drafts/accepts ADR-011 (narrowed scope). (b) Owner approves me drafting it as a proposal. (c) Defer logo to a later slice. | (a)/(b) unblock; (c) gate item unevidenced. |
+| B3 | **WAC-07** late-reversal eligibility for stock-movement reversals | **OD-03** open (`05-03` WAC-07 marked *NEEDS OWNER APPROVAL*; `03` TD-5: "reversal eligibility and correction path pending OD-03") | PRD `05-03` WAC-07 + design note (proposed ADR-018 **not accepted**); `10` §10.1 WAC row | (a) Owner decides OD-03 (accept/reject ADR-018). (b) A1 ships WAC without reversal-eligibility rules. | (a) unblocks reversal tests. (b) **WAC-01…06, 08…11 still fully implementable** — only late-reversal *eligibility* is deferred. |
+
+**TD-5 default is implemented** where it is a default and not OD-03: WAC running
+average **scale 8** (WAC-09) ships. Only reversal *eligibility* waits on OD-03.
+
+### Conflict documented with a default in force (not blocking)
+
+| # | Requirement | Conflict | Evidence | Options | Consequence of each option |
+|---|---|---|---|---|---|
+| B4 | **DM-3: surrogate keys are BIGINT** (`09-data.md`, restated in ADR-005) | The A0 platform schema already shipped **Guid** surrogate keys in an applied migration, and branch scoping is typed against it | `UserBranchScope.BranchId` is `Guid` in `20261116221419_InitialPlatformCore`, commented *"Master Data owns Branch entity; A0 stores opaque id only"*; `BranchIsolationTests` (A0, committed) asserts `Guid` branch ids; `BranchIsolationTests`' own header says *"Master Data owns Branch entities later (A1)"* | (a) **Guid surrogate keys everywhere** (default in force). (b) bigint for new tables only, Guid for Branch. (c) convert everything to bigint. | (a) consistent with A0 and with `UserBranchScope`; deviates from DM-3 text. (b) two key styles coexist in one system. (c) requires altering **applied** platform tables and rewriting committed A0 tests — unavailable under this slice's boundary. |
+
+**Default (a) is implemented** in A1-1 (`Company.Id`, `Branch.Id` are `Guid`).
+Owner decision still wanted: record DM-3 as amended (new ADR/Decision Register
+entry) or schedule a later conversion. Do not silently switch key style mid-slice.
+
+**Not blocked:** everything else in A1. Proceed below.
+
+---
+
+## 1. Increment plan
+
+Order is dependency-driven: module skeleton → master data → inventory ledger →
+WAC → documents that post movements.
+
+| # | Increment | Requirement IDs | Status |
+|---|---|---|---|
+| A1-1 | **Master Data module foundation** — `SupplyForge.MasterData`, `.Contracts`, `.Infrastructure` per ADR-001; `master_data` schema; `Company` singleton + **3-branch seed**; ambient session generalised from 2 → N module contexts (ADR-003 extension, Host-only composition) | MD-001, MD-002, DM-1, A-2, A-4, ADR-001, ADR-003, MOD-1, MOD-5 | **Done 2026-11-20** (evidence §5) |
+| A1-2 | **Products + catalogue** — Product (RequiresInspection, reorder, lead time, default price, standard cost), category hierarchy, UoM + conversions, product statuses with no-archive-while-on-hand | MD-010, MD-011, MD-012, MD-013, DM-2, DM-5 | **Done 2026-11-22** (evidence §6) |
+| A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | Planned |
+| A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1, BRN-001…010, `06a` §6.2 | Planned |
+| A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | Planned |
+| A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | Planned |
+| A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | Planned |
+| A1-8 | **Availability + replenishment + returns guard** — availability query with all buckets + incoming, reorder breach alert, Returns-location inbound guard | INV-100, INV-060, INV-061, INV-090, INV-091, `06a` §6.2 | Planned |
+| A1-9 | **Admin user lifecycle** — role/branch assignment, last-admin protection | MD-004, BRN-009, BRN-010, PLT-ROLE-3 | Planned |
+
+**Deferred by owner decision:** B1 (approval engine / INV-041), B2 (logo / SEC-40),
+B3 (WAC-07 / OD-03).
+
+## 1a. A1-2 design decisions (written before any A1-2 code)
+
+Read for this increment: `docs/prd/05-02-master-data-MD.md` (whole file, 25 lines),
+`09-data.md` DM-2/DM-4/DM-5, `02b-users-roles-branches.md` §2.7 (branch-scoped vs
+company-shared), `04a-module-map-and-rules.md` (Master Data owns products/UoM/
+categories). No library file was opened beyond the always-on rules.
+
+The PRD states **what** these four requirements need but not every value, so each
+open point is decided here first:
+
+| # | Point | PRD says | Decision | Why |
+|---|---|---|---|---|
+| D-a | Product identity fields | MD-010 lists "fields **incl.** …" | `Code` (unique SKU), `Name`, `Description` **plus** the five listed fields | "incl." means at least those; a product without a code cannot be referenced by stock, purchasing or sales |
+| D-b | Product status values | MD-013 "Product statuses" — no values given anywhere in the PRD (`grep -rn "Archiv" docs/prd/` = 0 hits) | String codes `Active`, `Inactive`, `Archived` (DM-5: string status codes) | Smallest set that expresses MD-013's own vocabulary ("archive"). Assumption, stated per library rule 14 — swap later without a schema change |
+| D-c | Status transitions | DM-5 "transitions tested"; MD-013 states exactly one constraint | Any of the three codes → any other code, **except** archive requires `on_hand ≤ 0` | MD-013 gives no other rule; inventing a terminal state would be a requirement the PRD does not have |
+| D-d | Archive guard timing | MD-013 "no archive with on-hand > 0" | Rule written as a pure domain function `ProductStatus.CanArchive(onHand)` now, unit-tested now; wired to real `StockBalance` in **A1-5** | On-hand does not exist until the inventory ledger (A1-5) — the rule can be written and tested before its data source can |
+| D-e | Category ↔ Product link | MD-011 only says "Category hierarchy" | Self-referencing `Category.ParentId` + nullable `Product.CategoryId` | Without the link a hierarchy has no consumer; nullable keeps uncategorised products legal |
+| D-f | Category cycles | not stated | **Not implemented** | No category write service exists yet; adding cycle logic with no caller would be speculative (G-8). Revisit with the category API |
+| D-g | UoM conversion scope | MD-012 "UoM conversions; store base unit" | Global `UnitOfMeasureConversion(From, To, Factor)` + required `Product.BaseUnitOfMeasureId` | PRD does not say per-product conversions; global pairs are the simpler reading |
+| D-h | Conversion factor sanity | not stated | CHECK constraint `Factor > 0` on the table | A zero/negative factor silently corrupts every quantity conversion (FIN-CALC-04 scale 4) |
+| D-i | Company-shared, no branch | `02b` §2.7: "Company-shared master data has no `BranchId`: products, categories, UoM …" | **No `BranchId`** on Product/Category/UoM | Direct PRD statement (MOD-1 + BRN) |
+| D-j | Decimal scales | DM-2 / FIN-CALC-04 / A-1 | money `decimal(18,2)`, qty `decimal(18,4)` | DM-2: money per base-currency scale, qty scale 4 default |
+
+**Scope of A1-2:** data model + migration + tests. No HTTP endpoint is added here:
+the PRD fixes no permission codes for Master Data (`grep` finds no module matrix),
+and PLT-022 requires an explicit `perm:*` policy on every endpoint — inventing
+codes would invent requirements. Endpoint work is scheduled as its own increment
+once the permission matrix exists.
+
+## 2. Acceptance gate mapping (PRD §11.2 A1 row)
+
+| Gate item | Served by | State |
+|---|---|---|
+| Reconciliation | A1-5 (INV-011 job: balances ≡ movement sums) | Planned |
+| INV-004 tests | A1-5 (`on_hand ≥ 0`, `available ≥ 0`, no double-reserve) | Planned |
+| WAC-02/03/08 tests | A1-6 | Planned |
+| INV-041 via approval engine | **B1 — blocked on ADR-007** | Blocked |
+| Logo upload tests | **B2 — blocked on ADR-011** | Blocked |
+
+## 3. Constraints that shape every increment
+
+1. **The dev database is never modified and no migration is ever applied to it**
+   (owner instruction, this slice). Consequences:
+   - New-schema tests run against a **throwaway database** created and dropped by
+     the test (pattern proven by `NotificationDeliveryMigrationTests`): `CREATE
+     DATABASE` → `IMigrator.Migrate()` → assert → `DROP DATABASE`.
+   - `dotnet ef migrations add` may be used to **create migration files only**;
+     `dotnet ef database update` is never run.
+   - Existing dev-DB test suites must keep passing unchanged — an endpoint that
+     needs a not-yet-applied table is not added to those suites.
+2. **No package upgrades.** New projects use the versions already in the tree
+   (EF Core 10.0.15, `Microsoft.NET.Sdk`, `net10.0`).
+3. **No commits or pushes** without explicit owner authorisation.
+4. **No test is weakened, skipped or deleted** to make a change pass.
+5. **MOD-1 / MOD-1a / MOD-5 / MOD-10:** MasterData and Inventory own their
+   tables; cross-module access is contract-only; `MOD-10` requires the
+   architecture tests to be **extended** for the new module graph (not loosened).
+6. **Traceability:** requirement ID in every test name (NFR-051).
+
+## 4. Architecture notes for A1-1
+
+- Layout follows the **accepted** ADR-001 recommendation table:
+  `src/Modules/MasterData/SupplyForge.MasterData{,.Contracts,.Infrastructure}/`,
+  named `SupplyForge.MasterData*`. Same for Inventory later.
+- Contract assemblies are **leaves** (ADR-001 §PRD-confirmed 3); the existing
+  `PLT_043_ContractsAreLeaf_NoOutwardReferences` test gains the new assembly names.
+- The ambient session (`Host/Data/AmbientDbSession.cs`) currently hardcodes two
+  contexts. A1-1 generalises it to enlist **every** registered module context on
+  one shared connection/transaction (ADR-003 unchanged in substance: still one
+  SQL Server, no distributed transactions — MOD-TXN-01/04). Host stays the only
+  composition root (`MOD_001_HostIsOnlyCompositionRoot`).
+- `MOD-1_SharedSchemasAreSeparate_ContextsNotShared` gains the `master_data`
+  schema assertion.
+
+## 5. A1-1 evidence (completed 2026-11-20)
+
+**Files created**
+
+| Path | Purpose |
+|---|---|
+| `src/Modules/MasterData/SupplyForge.MasterData.Contracts/` | Leaf contracts assembly (marker only — nothing to contract yet) |
+| `src/Modules/MasterData/SupplyForge.MasterData/Domain/{Company,Branch}.cs` | MD-001 company singleton, MD-002 branch |
+| `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/Data/MasterDataDbContext.cs` | `master_data` schema owner (MOD-1) |
+| `.../Data/MasterDataDbContextFactory.cs` | design-time factory for `dotnet ef migrations add` (never opens a connection) |
+| `.../Data/MasterDataSeed.cs` | idempotent first-run seed (MD-001/MD-002), schema-absent → `false` |
+| `.../Data/Migrations/20261119232720_A1InitialMasterData.cs` | creates schema + `Company` + `Branch` + 2 indexes; `Down` drops exactly those |
+| `tests/MasterData.IntegrationTests/` | 10 tests, all on throwaway databases |
+
+**Files changed:** `SupplyForge.slnx` (+4 projects), `Host/SupplyForge.Host.csproj`
+(+1 reference), `Host/ServiceCollectionExtensions.cs` (DbContext + seed + 3-context
+session factory), `Host/Program.cs` (seed call with logged skip),
+`Host/Data/AmbientDbSession.cs` (2 → N contexts, same-string guard),
+`tests/ArchitectureTests/*` (MOD-10 extension), `.github/workflows/ci.yml`
+(+1 `dotnet ef database update` line for the **ephemeral CI container only**).
+
+**Tests added (NFR-051 — requirement ID in every name)**
+
+| Test | Requirement |
+|---|---|
+| `MD_001_Seed_CreatesTheCompanySingleton_WithEveryProfileField` | MD-001 |
+| `MD_001_TwoActiveCompanies_AreRejectedByTheSchema` | MD-001 (schema-enforced "exactly one active") |
+| `MD_002_Seed_CreatesExactlyThreeBranches_WithUniquePlaceholderCodes` | MD-002, A-2, Q-3 |
+| `MD_001_MD_002_SeedRunTwice_CreatesNoDuplicates` | MD-001/MD-002 idempotency |
+| `MD_002_DuplicateBranchCode_IsRejectedByTheUniqueIndex` | MD-002 |
+| `MD_001_SeedWithoutTheMigration_ReportsSchemaAbsent_AndWritesNothing` | MD-001 first-run, Host safety |
+| `MIGRATION_A1InitialMasterData_UpCreatesSchemaTablesAndIndexes_DownReversesExactly` | migration boundary |
+| `MOD_TXN_01_Session_JoinsAllThreeModuleContextsOnOneConnection_ThenRestoresThem` | MOD-TXN-01 |
+| `MOD_TXN_04_SessionCommit_PersistsRowsFromAllThreeModuleContexts` | MOD-TXN-04 |
+| `MOD_TXN_05_SessionRollback_LeavesNoRowInAnyModule_ContextsRemainUsable` | MOD-TXN-05 |
+
+**Extended, not weakened:** `PLT_043_ContractsAreLeaf` (+`MasterData.Contracts`,
+other contracts now forbidden too), `MOD_001_ModulesDoNotReferenceOtherModuleImplementations`
+(generalised to every module pair), `MOD_005_SharedDoesNotReferenceModules`,
+`MOD_008_BannedInfrastructurePackages`, `MOD_001_HostIsOnlyCompositionRoot`,
+`MOD_1_SharedSchemasAreSeparate_ContextsNotShared` (+`master_data`, +3-way
+context distinctness). No assertion was removed or loosened.
+
+**Verification run (2026-11-20)**
+
+- `dotnet build` → 0 errors, 0 warnings.
+- `dotnet test` → **179/179**: architecture 14, unit 68, PlatformCore
+  integration 87, **MasterData integration 10** (was 169 before A1-1).
+- `dotnet format --verify-no-changes` → exit 0.
+- Host started against the development database: starts, logs exactly one
+  warning (`Master Data seed skipped: the master_data schema is not present…`)
+  and serves `/health` — **no `fail:`/`error` lines, no write to the dev DB**.
+
+**Decisions taken inside A1-1 (ordinary, within PRD/ADR scope)**
+
+1. `Branch.Id`/`Company.Id` are `Guid` → **B4** above (DM-3 conflict, default in force).
+2. Company singleton is enforced twice: fixed sentinel PK **and** a unique
+   filtered index on `IsActive` (`[IsActive] = 1`) — MD-001 is a schema invariant.
+3. Placeholder seed values: branch codes/names `BR-01…03`/`Branch 01…03` (Q-3
+   explicitly allows placeholders) and legal name `"SupplyForge Demo Company"`
+   (MD-001 states the field but gives no default — no schema change needed later).
+4. The seed runs at Host startup like `PlatformCatalogueSeed` (A0 convention:
+   runtime seed, no `HasData`, no migration approval needed for data). It **skips
+   with a warning** when `master_data` is absent, so a pre-A1 database still boots.
+5. CI gained the third `dotnet ef database update` line. It targets only that
+   job's own ephemeral service container (workflow header, lines 9–10) — never the
+   development database. Not yet executed on GitHub (nothing is committed/pushed).
+
+**Known issues recorded, not silently fixed**
+
+- `OUT_01_Outbox_Enqueue_PersistsPendingMessage` uses the same
+  "latest row in a shared table" pattern that made `PLT_040` flaky. Left
+  untouched (out of scope); recommend the identical entity-id scoping fix.
+- The failed `PLT_040` run before the fix left one test row in
+  `platform.AuditLog` on the dev database (`ActorId='test'`,
+  `Action='test.action'`, `EntityId='1'`). Not deleted — removing data needs
+  owner approval. It does not affect any assertion.
+- No HTTP endpoint was added: MD-001 explicitly says company creation is "not a
+  tenant API", and A1-1's gate items are data/ledger concerns of later increments.
+
+---
+
+## 6. A1-2 evidence (completed 2026-11-22)
+
+Decisions were written first in §1a (D-a…D-j). Scope stayed data model +
+migration + tests — no HTTP endpoint (permission matrix does not exist yet, see
+§1a scope note).
+
+**Files created**
+
+| Path | Purpose |
+|---|---|
+| `src/Modules/MasterData/SupplyForge.MasterData/Domain/{Product,ProductStatus,Category,UnitOfMeasure,UnitOfMeasureConversion}.cs` | MD-010…MD-013 entities + status-code rules (DM-5) |
+| `.../Infrastructure/Data/MasterDataDbContext.cs` (extended) | 4 new DbSets; unique codes, self-ref Category, FKs, `HasPrecision`, `CK_UnitOfMeasureConversion_Factor_Positive` |
+| `.../Data/Migrations/20261120110027_A1ProductCatalogue.cs` | Up: Category, UnitOfMeasure, Product, UnitOfMeasureConversion + indexes + check; Down drops exactly those 4 |
+| `tests/MasterData.UnitTests/` | new unit project (ADR-001 naming) + slnx entry — `ProductStatus` rules, no DB needed |
+| `tests/MasterData.IntegrationTests/ProductCatalogueTests.cs` | 9 tests, all on throwaway databases |
+
+**Tests added (NFR-051 — requirement ID in every name)**
+
+| Test | Requirement |
+|---|---|
+| `MD_013_ProductStatuses_AreExactlyTheThreeDocumentedCodes` … `MD_013_Product_DefaultsToTheActiveStatusCode` (6 unit tests) | MD-013, DM-5, MD-010 default |
+| `MD_010_Product_PersistsEveryRequiredField` | MD-010, DM-2, A-1 (scales) |
+| `MD_010_ProductCode_IsUnique` | MD-010 |
+| `MD_011_CategoryHierarchy_PersistsParentAndChildLinks` | MD-011 (any depth) |
+| `MD_011_ProductMayBeLeftUncategorised` | MD-011, D-e |
+| `MD_012_UoMConversion_PersistsFactor_AndRejectsASecondPair` | MD-012 (unique pair) |
+| `MD_012_UoMConversion_NonPositiveFactor_IsRejectedByTheSchema` | MD-012, D-h (schema-enforced) |
+| `MD_013_ProductStatus_IsStoredAsStringStatusCode` | MD-013, DM-5 persistence |
+| `DM_2_CatalogueColumns_AreStoredAtTheirDeclaredPrecision` | DM-2 (asserted against live `sys.columns`, not the EF model) |
+| `MIGRATION_A1ProductCatalogue_UpCreatesCatalogueTablesAndGuard_DownReversesExactly` | migration boundary (6 tables up → 0 down) |
+
+**Decisions taken inside A1-2 (ordinary, within PRD/ADR scope)**
+
+1. **All five FKs of the new tables are `DeleteBehavior.Restrict` — zero
+   cascades.** The first migration attempt used EF's convention (required
+   reference → cascade) and **could not be applied**: SQL Server error 1753,
+   *"multiple cascade paths"* (`UnitOfMeasure` → conversion via From + To).
+   The model fix also matches PRD `05-02`'s rule **"deactivate not delete"**:
+   a category or base unit in use must be deactivated, never deleted out from
+   under its products. The broken migration was never applied to any database;
+   it was removed with `dotnet ef migrations remove` and re-scaffolded
+   (`20261119235652` → `20261120110027`). `dotnet ef database update` was
+   never run (§3 constraint 1).
+2. **A1-1's migration test was de-coupled from later increments.** It asserted
+   a hard-coded total of 2 tables in `master_data`, which A1-2's four tables
+   invalidated (the one failing test of the first A1-2 run — not a product
+   defect). The assertion now checks A1-1's own two tables **by name**
+   (`IN ('Company','Branch')`); the schema total is asserted only by the
+   newest migration test (A1-2 asserts 6). No assertion was removed or
+   loosened — this is the same total-count check scoped to its owner.
+
+**Verification run (2026-11-22)**
+
+- `dotnet build` → 0 errors, 0 warnings.
+- `dotnet test` → **194/194**: architecture 14, unit **74** (68 + 6 new),
+  PlatformCore integration 87, **MasterData integration 19** (10 A1-1 + 9
+  A1-2) — two consecutive full green runs.
+- `dotnet format --verify-no-changes` → exit 0.
+- One intermediate full run showed 4 PlatformCore + 6 MasterData failures
+  while a `dotnet format` process ran **concurrently** (load-induced; failure
+  messages were not captured before the grep discarded them — recorded here
+  rather than claimed as understood). Strictly sequential re-runs were green
+  and standalone MasterData runs were 19/19; the throwaway-DB names are
+  GUID-based, so no test-name collision exists. Not reproduced since.
+
+**Not done in A1-2 (by design):** HTTP endpoints (no Master Data permission
+codes exist — PLT-022 forbids inventing them); category-cycle logic (D-f, no
+caller yet); wiring `CanArchive` to real on-hand (D-d → A1-5).

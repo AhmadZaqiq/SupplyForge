@@ -6,6 +6,7 @@ using SupplyForge.Host.Endpoints;
 using SupplyForge.Host.Middleware;
 using SupplyForge.Host.OpenApi;
 using SupplyForge.Host.RateLimiting;
+using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -57,6 +58,18 @@ using (var seedScope = app.Services.CreateScope())
 {
     var catalogueSeed = seedScope.ServiceProvider.GetRequiredService<PlatformCatalogueSeed>();
     await catalogueSeed.EnsureSeededAsync(app.Lifetime.ApplicationStopping);
+
+    // A1-1 (MD-001, MD-002): company singleton + three v1 branches, same
+    // idempotent first-run shape. Returns false when the master_data
+    // migration has not been applied to this database yet — expected on a
+    // database that predates A1, and never a reason to refuse traffic.
+    var masterDataSeed = seedScope.ServiceProvider.GetRequiredService<MasterDataSeed>();
+    if (!await masterDataSeed.EnsureSeededAsync(app.Lifetime.ApplicationStopping))
+    {
+        app.Logger.LogWarning(
+            "Master Data seed skipped: the master_data schema is not present in this database. " +
+            "Apply the SupplyForge.MasterData.Infrastructure migration to seed the company singleton and branches.");
+    }
 }
 
 app.Run();

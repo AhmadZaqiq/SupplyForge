@@ -115,13 +115,20 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     {
         await using var db = CreatePlatformDb();
         var services = new PlatformSharedServices(db, TimeProvider.System);
-        await services.WriteAsync("test", "tester", "test.action", "Entity", "1", null, "{\"ok\":true}");
 
-        var last = await db.AuditLogs.OrderByDescending(x => x.OccurredAt).FirstAsync();
-        Assert.Equal("test.action", last.Action);
-        Assert.Equal("tester", last.ActorId);
+        // Read back by a unique entity id, not "the latest row overall": the
+        // audit table is shared with every other test running in parallel, so
+        // an ordering-based assertion is not deterministic (a concurrent
+        // notification.mark_sent row won the ordering race in A1-1). This
+        // keeps both assertions exact — same pattern PLT_044 already uses.
+        var entityId = Guid.NewGuid().ToString();
+        await services.WriteAsync("test", "tester", "test.action", "Entity", entityId, null, "{\"ok\":true}");
 
-        db.AuditLogs.Remove(last);
+        var written = await db.AuditLogs.SingleAsync(x => x.EntityId == entityId);
+        Assert.Equal("test.action", written.Action);
+        Assert.Equal("tester", written.ActorId);
+
+        db.AuditLogs.Remove(written);
         await db.SaveChangesAsync();
     }
 

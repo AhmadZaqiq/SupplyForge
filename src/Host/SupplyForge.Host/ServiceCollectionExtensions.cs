@@ -41,6 +41,14 @@ public static class ServiceCollectionExtensions
                     "__EFMigrationsHistory",
                     SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext.Schema)));
 
+        // A1-1 (MD-001/MD-002): Master Data module, same single connection and
+        // per-module schema history table as the other modules (ADR-003).
+        services.AddDbContext<SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext>(options =>
+            options.UseSqlServer(connectionString, sql =>
+                sql.MigrationsHistoryTable(
+                    "__EFMigrationsHistory",
+                    SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext.Schema)));
+
         services.AddScoped<PlatformSharedServices>();
         services.AddScoped<IAuditWriter>(sp => sp.GetRequiredService<PlatformSharedServices>());
         services.AddScoped<SupplyForge.Shared.Idempotency.IIdempotencyStore>(sp =>
@@ -127,11 +135,18 @@ public static class ServiceCollectionExtensions
         // role-bundle seed, invoked once at Host startup (Program.cs).
         services.AddScoped<PlatformCatalogueSeed>();
 
-        // ADR-003 (A0-6): the ambient session joins PlatformCore +
-        // Integrations on one shared connection/transaction. Host owns the
-        // implementation because it is the only project referencing both
-        // module DbContexts (MOD-1 acyclic graph).
-        services.AddScoped<SupplyForge.Shared.Data.IDbSessionFactory, Data.AmbientDbSessionFactory>();
+        // A1-1: company singleton + three-branch first-run seed (MD-001,
+        // MD-002), next to the platform catalogue seed in Program.cs.
+        services.AddScoped<SupplyForge.MasterData.Infrastructure.Data.MasterDataSeed>();
+
+        // ADR-003 (A0-6, extended by A1-1): the ambient session joins every
+        // module DbContext on one shared connection/transaction. Host owns the
+        // implementation and the enlistment list because it is the only
+        // project referencing the module DbContexts (MOD-1 acyclic graph).
+        services.AddScoped<SupplyForge.Shared.Data.IDbSessionFactory>(sp => new Data.AmbientDbSessionFactory(
+            sp.GetRequiredService<PlatformCoreDbContext>(),
+            sp.GetRequiredService<SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext>(),
+            sp.GetRequiredService<SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext>()));
 
         // SEC-10 / ADR-004 / ADR-006: standard JWT Bearer handler, HS256 only,
         // explicit 2-minute clock skew.

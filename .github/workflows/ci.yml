@@ -67,6 +67,11 @@ jobs:
           dotnet ef database update \
             --project src/Modules/Integrations/SupplyForge.Integrations.Infrastructure \
             --startup-project src/Host/SupplyForge.Host
+          # A1-1: Master Data (master_data schema). Only ever this job's own
+          # service container — never a shared or long-lived database.
+          dotnet ef database update \
+            --project src/Modules/MasterData/SupplyForge.MasterData.Infrastructure \
+            --startup-project src/Host/SupplyForge.Host
 
       - name: Test — unit, integration (real SQL Server), architecture (NFR-040/041)
         run: dotnet test

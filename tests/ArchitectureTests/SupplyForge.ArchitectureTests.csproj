@@ -26,6 +26,9 @@
     <ProjectReference Include="..\..\src\Modules\Integrations\SupplyForge.Integrations.Contracts\SupplyForge.Integrations.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Integrations\SupplyForge.Integrations\SupplyForge.Integrations.csproj" />
     <ProjectReference Include="..\..\src\Modules\Integrations\SupplyForge.Integrations.Infrastructure\SupplyForge.Integrations.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\SupplyForge.MasterData.Contracts\SupplyForge.MasterData.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\SupplyForge.MasterData\SupplyForge.MasterData.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\SupplyForge.MasterData.Infrastructure\SupplyForge.MasterData.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Host\SupplyForge.Host\SupplyForge.Host.csproj" />
   </ItemGroup>
 

@@ -55,12 +55,19 @@ public class Mod1aSharedInterfaceTests
     [Fact]
     public void MOD_1_SharedSchemasAreSeparate_ContextsNotShared()
     {
-        // Two distinct DbContext types — ownership is not centralized.
+        // Distinct DbContext types per module — ownership is not centralized.
         Assert.NotEqual(
             typeof(SupplyForge.PlatformCore.Infrastructure.Data.PlatformCoreDbContext),
             typeof(SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext));
+        Assert.NotEqual(
+            typeof(SupplyForge.PlatformCore.Infrastructure.Data.PlatformCoreDbContext),
+            typeof(SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext));
+        Assert.NotEqual(
+            typeof(SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext),
+            typeof(SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext));
 
         Assert.Equal("platform", SupplyForge.PlatformCore.Infrastructure.Data.PlatformCoreDbContext.Schema);
         Assert.Equal("integrations", SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext.Schema);
+        Assert.Equal("master_data", SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext.Schema);
     }
 }
