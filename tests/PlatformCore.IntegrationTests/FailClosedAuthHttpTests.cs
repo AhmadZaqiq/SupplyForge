@@ -146,6 +146,16 @@ public sealed class FailClosedAuthHttpTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
 
         using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
+
+        // A0-8 item 6: these are exactly the fields README §3 documents for
+        // the login response — the doc and the wire format must agree.
+        foreach (var field in new[] { "userId", "accessToken", "refreshToken", "expiresAt" })
+        {
+            Assert.True(
+                loginDoc.RootElement.TryGetProperty(field, out _),
+                $"login response is missing documented field '{field}'.");
+        }
+
         var refreshToken = loginDoc.RootElement.GetProperty("refreshToken").GetString();
         Assert.False(string.IsNullOrWhiteSpace(refreshToken));
 

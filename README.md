@@ -128,11 +128,16 @@ curl -X POST http://localhost:5009/api/v1/users \
 curl -X POST http://localhost:5009/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"userName":"admin","password":"<strong-pw>"}'
-# → { "userId", "accessToken", "refreshToken", "accessTokenExpiresAt" }
+# → { "userId", "accessToken", "refreshToken", "expiresAt" }
 ```
 
 Refresh tokens rotate on use (PLT-011). Login/refresh are rate-limited per IP
 and per account (SEC-04/PLT-012).
+
+**Known gap (MD-004, slice A1):** role/branch assignment is not implemented
+yet, so the first user has **no roles**. Login succeeds, but
+permission-gated calls fail with 403 — including `POST /api/v1/users`, which
+requires `platform.user.manage`. Roles land with slice A1 (MD-004).
 
 ### 4. Configuration and secrets
 
@@ -195,11 +200,15 @@ problem-details shape.
 docker build -t supplyforge-host .
 docker run -p 8080:8080 \
   -e "ConnectionStrings__SupplyForge=Server=<host>,1433;Database=SupplyForge;User Id=sa;Password=<pw>;TrustServerCertificate=True;Encrypt=True" \
+  -e "Auth__AccessTokenSecret=<32+ byte secret>" \
   supplyforge-host
 ```
 
 Only build arguments are code; configuration (connection strings, JWT
-settings, limits) is injected at run time, never baked into the image.
+settings, limits) is injected at run time, never baked into the image. The
+image runs as **Production** by default, so `Auth__AccessTokenSecret` must be
+a real ≥32-byte secret — startup fails fast on the repository placeholder
+(SEC-20).
 
 ## CI (NFR-061)
 
