@@ -154,6 +154,13 @@ public sealed class FailClosedAuthHttpTests : IAsyncLifetime
             Json(new { refreshToken }));
         Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
 
+        // A0-8 item 4 / PLT-011: the refresh response must carry the same
+        // real user id as the login — not Guid.Empty.
+        using var refreshDoc = JsonDocument.Parse(await refresh.Content.ReadAsStringAsync());
+        var loginUserId = loginDoc.RootElement.GetProperty("userId").GetGuid();
+        Assert.NotEqual(Guid.Empty, loginUserId);
+        Assert.Equal(loginUserId, refreshDoc.RootElement.GetProperty("userId").GetGuid());
+
         await CleanupAsync(userName);
     }
 

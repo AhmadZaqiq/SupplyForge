@@ -359,6 +359,9 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         Assert.Equal(3, refreshed.AccessToken!.Split('.').Length);
         Assert.NotNull(refreshed.AccessTokenExpiresAt);
 
+        // A0-8 item 4: the refresh result carries the real user id, not empty.
+        Assert.Equal(created.UserId, refreshed.UserId);
+
         // Presenting the OLD (rotated) token again must fail as reuse.
         var reuse = await auth.RefreshAsync(login.RefreshToken!);
         Assert.False(reuse.Success);

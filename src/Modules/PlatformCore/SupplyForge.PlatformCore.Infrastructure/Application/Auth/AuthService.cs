@@ -24,6 +24,7 @@ public sealed record LoginResult(
 public sealed record RefreshResult(
     bool Success,
     string? Error,
+    Guid? UserId,
     string? AccessToken,
     string? RefreshToken,
     DateTimeOffset? AccessTokenExpiresAt);
@@ -284,7 +285,7 @@ public sealed class AuthService
 
         if (stored is null)
         {
-            return new RefreshResult(false, "invalid_refresh_token", null, null, null);
+            return new RefreshResult(false, "invalid_refresh_token", null, null, null, null);
         }
 
         var now = _clock.GetUtcNow();
@@ -304,17 +305,17 @@ public sealed class AuthService
             await _audit.WriteAsync(
                 "system", null, "refresh.reuse_detected", "RefreshToken", stored.Id.ToString(),
                 null, $"family={stored.FamilyId}", cancellationToken);
-            return new RefreshResult(false, "refresh_reuse", null, null, null);
+            return new RefreshResult(false, "refresh_reuse", null, null, null, null);
         }
 
         if (stored.ExpiresAt <= now)
         {
-            return new RefreshResult(false, "refresh_expired", null, null, null);
+            return new RefreshResult(false, "refresh_expired", null, null, null, null);
         }
 
         if (!stored.User.IsActive)
         {
-            return new RefreshResult(false, "user_inactive", null, null, null);
+            return new RefreshResult(false, "user_inactive", null, null, null, null);
         }
 
         // Rotate: revoke current, issue new in same family.
@@ -335,6 +336,6 @@ public sealed class AuthService
         await _db.SaveChangesAsync(cancellationToken);
 
         var access = _accessTokenIssuer.Issue(stored.UserId, stored.User.Email);
-        return new RefreshResult(true, null, access.Token, newToken, access.ExpiresAt);
+        return new RefreshResult(true, null, stored.UserId, access.Token, newToken, access.ExpiresAt);
     }
 }

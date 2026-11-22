@@ -73,8 +73,11 @@ public static class AuthEndpoints
                     extensions: new Dictionary<string, object?> { ["code"] = result.Error });
             }
 
+            // A0-8 item 4 / PLT-011: the rotated refresh response carries the
+            // real user id — Guid.Empty here broke clients that key the new
+            // session by it.
             return Results.Ok(new AuthResponse(
-                Guid.Empty,
+                result.UserId!.Value,
                 result.AccessToken!,
                 result.RefreshToken!,
                 result.AccessTokenExpiresAt!.Value));
