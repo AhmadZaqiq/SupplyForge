@@ -216,16 +216,12 @@ public sealed class AuthService
 
         var now = _clock.GetUtcNow();
 
-        if (!user.IsActive)
-        {
-            return new LoginResult(false, "user_inactive", null, null, null, null, null);
-        }
-
-        if (user.LockedUntil is { } lockedUntil && lockedUntil > now)
-        {
-            return new LoginResult(false, "locked_out", null, null, null, lockedUntil, null);
-        }
-
+        // A0-8 item 3 / PLT-012: verify the password BEFORE revealing any
+        // account state — an unauthenticated caller learns only
+        // invalid_credentials (the same answer as an unknown user), never
+        // user_inactive or locked_out. With a correct password the real
+        // state still surfaces below, so SEC-05 lockout and deactivated
+        // accounts keep working.
         if (!PasswordHasher.Verify(password, user.PasswordHash))
         {
             user.FailedLoginCount++;
@@ -240,6 +236,16 @@ public sealed class AuthService
 
             await _db.SaveChangesAsync(cancellationToken);
             return new LoginResult(false, "invalid_credentials", null, null, null, user.LockedUntil, null);
+        }
+
+        if (!user.IsActive)
+        {
+            return new LoginResult(false, "user_inactive", null, null, null, null, null);
+        }
+
+        if (user.LockedUntil is { } lockedUntil && lockedUntil > now)
+        {
+            return new LoginResult(false, "locked_out", null, null, null, lockedUntil, null);
         }
 
         user.FailedLoginCount = 0;

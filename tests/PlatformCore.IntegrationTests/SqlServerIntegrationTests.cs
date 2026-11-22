@@ -413,6 +413,63 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SEC_05_PLT_012_Login_NeverRevealsAccountStateBeforePasswordVerified()
+    {
+        // A0-8 item 3: login must answer invalid_credentials — the same
+        // shape as an unknown user — until the password is verified, so an
+        // unauthenticated caller cannot probe for inactive or locked
+        // accounts. With the correct password the real state still
+        // surfaces, keeping SEC-05 lockout and deactivation observable.
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var userName = $"sec05_{suffix}";
+        var (managerId, grantId) = await CreateManagerAsync(suffix);
+
+        await using var db = CreatePlatformDb();
+        var auth = CreateAuth(db);
+        var created = await auth.CreateUserAsync(
+            userName, $"{suffix}@test.local", "Passw0rd!x", "SEC05", managerId);
+        Assert.True(created.Success);
+
+        // Deactivated account: wrong password must not reveal the state.
+        var account = await db.Users.FirstAsync(x => x.Id == created.UserId);
+        account.IsActive = false;
+        await db.SaveChangesAsync();
+
+        var inactiveWrong = await auth.LoginAsync(userName, "wrong-password");
+        Assert.False(inactiveWrong.Success);
+        Assert.Equal("invalid_credentials", inactiveWrong.Error);
+
+        // Correct password: the state is revealed only now.
+        var inactiveCorrect = await auth.LoginAsync(userName, "Passw0rd!x");
+        Assert.False(inactiveCorrect.Success);
+        Assert.Equal("user_inactive", inactiveCorrect.Error);
+
+        // Locked account: wrong password again says only invalid_credentials.
+        account.IsActive = true;
+        account.LockedUntil = DateTimeOffset.UtcNow.AddMinutes(5);
+        await db.SaveChangesAsync();
+
+        var lockedWrong = await auth.LoginAsync(userName, "wrong-password");
+        Assert.False(lockedWrong.Success);
+        Assert.Equal("invalid_credentials", lockedWrong.Error);
+
+        // Correct password on a locked account is still refused (SEC-05).
+        var lockedCorrect = await auth.LoginAsync(userName, "Passw0rd!x");
+        Assert.False(lockedCorrect.Success);
+        Assert.Equal("locked_out", lockedCorrect.Error);
+
+        await using var db2 = CreatePlatformDb();
+        var cleanupUser = await db2.Users.FirstAsync(x => x.Id == created.UserId);
+        var tokens = await db2.RefreshTokens.Where(t => t.UserId == created.UserId).ToListAsync();
+        db2.RefreshTokens.RemoveRange(tokens);
+        db2.Users.Remove(cleanupUser);
+        var audits = await db2.AuditLogs.Where(a => a.EntityId == created.UserId.ToString()).ToListAsync();
+        db2.AuditLogs.RemoveRange(audits);
+        await RemoveManagerAsync(db2, managerId, grantId);
+        await db2.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task INT_050_ApiKey_IssueAuthenticate_Revoke_ScopeCheck()
     {
         await using var db = CreatePlatformDb();
