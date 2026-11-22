@@ -80,7 +80,7 @@ public class AmbientSessionThreeModuleTests
             {
                 pc.AuditLogs.Add(Audit(tag));
                 await pc.SaveChangesAsync();
-                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1);
+                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1, correlationId: null);
                 md.Branches.Add(new Branch
                 {
                     Id = Guid.NewGuid(),
@@ -129,7 +129,7 @@ public class AmbientSessionThreeModuleTests
             {
                 pc.AuditLogs.Add(Audit(tag));
                 await pc.SaveChangesAsync();
-                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1);
+                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1, correlationId: null);
                 md.Branches.Add(new Branch
                 {
                     Id = Guid.NewGuid(),
@@ -154,7 +154,14 @@ public class AmbientSessionThreeModuleTests
             // spike's fresh-connection restore, now across three modules.
             pc.AuditLogs.Add(Audit($"{tag}.post"));
             await pc.SaveChangesAsync();
-            await outbox.EnqueueAsync($"{tag}.post", "{\"value\":2}", version: 1);
+            // A0-8 item 5: IOutbox refuses to write outside a transaction
+            // (OUT-01) — the post-session enqueue joins a fresh local one,
+            // still proving the restored context works.
+            await using (var postTx = await intDb.Database.BeginTransactionAsync())
+            {
+                await outbox.EnqueueAsync($"{tag}.post", "{\"value\":2}", version: 1, correlationId: null);
+                await postTx.CommitAsync();
+            }
             md.Branches.Add(new Branch
             {
                 Id = Guid.NewGuid(),

@@ -6,10 +6,16 @@ namespace SupplyForge.Shared.Outbox;
 /// </summary>
 public interface IOutbox
 {
+    /// <param name="correlationId">
+    /// OUT-06 / OUT-04: correlation id carried on the event (API → jobs →
+    /// events → logs); null only when the publisher has no ambient
+    /// correlation to attach.
+    /// </param>
     Task EnqueueAsync(
         string eventType,
         string payloadJson,
         int version,
+        string? correlationId,
         CancellationToken cancellationToken = default);
 }
 

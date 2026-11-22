@@ -99,7 +99,7 @@ public class AmbientTransactionTests
             {
                 pc.AuditLogs.Add(Audit($"{tag}.domain"));
                 await pc.SaveChangesAsync();
-                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1);
+                await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1, correlationId: null);
 
                 // Forced domain failure AFTER the outbox insert attempt.
                 throw new InvalidOperationException("forced domain failure (A0-6)");
@@ -131,7 +131,7 @@ public class AmbientTransactionTests
         {
             pc.AuditLogs.Add(Audit($"{tag}.domain"));
             await pc.SaveChangesAsync();
-            await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1);
+            await outbox.EnqueueAsync($"{tag}.outbox", "{\"value\":1}", version: 1, correlationId: null);
             await session.CommitAsync();
         }
 
@@ -159,7 +159,7 @@ public class AmbientTransactionTests
         {
             pc.AuditLogs.Add(Audit($"{tag}.rolledback"));
             await pc.SaveChangesAsync();
-            await outbox.EnqueueAsync($"{tag}.rolledback", "{\"value\":1}", version: 1);
+            await outbox.EnqueueAsync($"{tag}.rolledback", "{\"value\":1}", version: 1, correlationId: null);
             await session.RollbackAsync();
         }
 
@@ -173,7 +173,14 @@ public class AmbientTransactionTests
         // fresh-connection restore, now asserted in the product path.
         pc.AuditLogs.Add(Audit($"{tag}.post"));
         await pc.SaveChangesAsync();
-        await outbox.EnqueueAsync($"{tag}.post", "{\"value\":2}", version: 1);
+        // A0-8 item 5: IOutbox refuses to write outside a transaction
+        // (OUT-01) — the post-session enqueue joins a fresh local one, still
+        // proving the restored context works in plain autocommit.
+        await using (var postTx = await intDb.Database.BeginTransactionAsync())
+        {
+            await outbox.EnqueueAsync($"{tag}.post", "{\"value\":2}", version: 1, correlationId: null);
+            await postTx.CommitAsync();
+        }
 
         Assert.Equal(1, await checkPc.AuditLogs.CountAsync(x => x.Action == $"{tag}.post"));
         Assert.Equal(1, await checkInt.OutboxMessages.CountAsync(x => x.EventType == $"{tag}.post"));

@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using System.Text.Json;
 using SupplyForge.Host.Auth;
 using SupplyForge.Host.Data;
+using SupplyForge.Integrations.Domain;
 using SupplyForge.Integrations.Infrastructure.Data;
 using SupplyForge.PlatformCore.Application.Security;
 using SupplyForge.PlatformCore.Domain;
@@ -191,17 +192,72 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task OUT_01_Outbox_Enqueue_PersistsPendingMessage()
     {
+        // OUT-01 / OUT-06: the enqueue joins the caller's transaction (the
+        // A0-8 guard refuses an ambientless write) and carries the
+        // correlation id on the row. The row is looked up by a unique event
+        // type — a recency-based FirstAsync raced parallel tests.
         await using var db = CreateIntegrationsDb();
         var outbox = new Outbox(db, TimeProvider.System);
-        await outbox.EnqueueAsync("platform.test_event", "{\"value\":1}", version: 1);
+        var eventType = $"platform.test_event_{Guid.NewGuid():N}";
 
-        var msg = await db.OutboxMessages.OrderByDescending(x => x.OccurredAt).FirstAsync();
-        Assert.Equal("platform.test_event", msg.EventType);
+        await using (var tx = await db.Database.BeginTransactionAsync())
+        {
+            await outbox.EnqueueAsync(
+                eventType, "{\"value\":1}", version: 1, correlationId: "corr-out01");
+            await tx.CommitAsync();
+        }
+
+        var msg = await db.OutboxMessages.SingleAsync(x => x.EventType == eventType);
         Assert.Equal("Pending", msg.Status);
         Assert.Equal(1, msg.Version);
+        Assert.Equal("corr-out01", msg.CorrelationId);
 
-        db.OutboxMessages.Remove(msg);
+        await db.OutboxMessages.Where(x => x.EventType == eventType).ExecuteDeleteAsync();
+    }
+
+    [Fact]
+    public async Task OUT_01_Outbox_Enqueue_WithoutActiveTransaction_Throws()
+    {
+        // A0-8 item 5: no ambient session/transaction ⇒ fail fast rather
+        // than autocommit a row that would outlive a domain rollback.
+        await using var db = CreateIntegrationsDb();
+        var outbox = new Outbox(db, TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            outbox.EnqueueAsync("platform.no_tx_event", "{}", version: 1, correlationId: null));
+        Assert.Contains("IDbSession", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OUT_02_Inbox_MarkFailedAndProcessed_TouchInboxRowsOnly()
+    {
+        // A0-8 item 5: IInbox must address InboxMessage — before the fix
+        // these methods mutated OutboxMessage, so an inbox id was "not found".
+        await using var db = CreateIntegrationsDb();
+        var inbox = new Outbox(db, TimeProvider.System);
+        var inboxId = Guid.NewGuid();
+        db.InboxMessages.Add(new InboxMessage
+        {
+            Id = inboxId,
+            MessageKey = $"key-{inboxId:N}",
+            EventType = "platform.test_event",
+            PayloadJson = "{\"value\":1}",
+            Status = "Received",
+            ReceivedAt = DateTimeOffset.UtcNow,
+        });
         await db.SaveChangesAsync();
+
+        await inbox.MarkFailedAsync(inboxId, "consumer failed");
+        var failed = await db.InboxMessages.SingleAsync(x => x.Id == inboxId);
+        Assert.Equal("Failed", failed.Status);
+        Assert.Equal("consumer failed", failed.LastError);
+
+        await inbox.MarkProcessedAsync(inboxId);
+        var processed = await db.InboxMessages.SingleAsync(x => x.Id == inboxId);
+        Assert.Equal("Processed", processed.Status);
+        Assert.NotNull(processed.ProcessedAt);
+
+        await db.InboxMessages.Where(x => x.Id == inboxId).ExecuteDeleteAsync();
     }
 
     [Fact]
