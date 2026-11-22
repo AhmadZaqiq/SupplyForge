@@ -155,6 +155,40 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task PLT_073b_ConcurrentNextAsync_NeverReturnsDuplicates()
+    {
+        // PLT-073b concurrent-safe generation: N parallel allocations on one
+        // scope yield N distinct numbers. Gaps are allowed (PLT-073c);
+        // duplicates are not. Every caller gets its own DbContext and
+        // connection, so the race really runs across connections — the old
+        // read-modify-write NextAsync returned duplicates here.
+        const string scope = "test.seq.concurrent";
+        const int parallel = 20;
+
+        await using (var seed = CreatePlatformDb())
+        {
+            var existing = await seed.DocumentSequences.Where(x => x.Scope == scope).ToListAsync();
+            seed.DocumentSequences.RemoveRange(existing);
+            await seed.SaveChangesAsync();
+        }
+
+        var numbers = await Task.WhenAll(Enumerable.Range(0, parallel).Select(async _ =>
+        {
+            await using var db = CreatePlatformDb();
+            var services = new PlatformSharedServices(db, TimeProvider.System);
+            return await services.NextAsync(scope, "PO-", 6);
+        }));
+
+        Assert.Equal(parallel, numbers.Length);
+        Assert.Equal(parallel, numbers.Distinct().Count());
+
+        await using var cleanup = CreatePlatformDb();
+        var allocated = await cleanup.DocumentSequences.FirstAsync(x => x.Scope == scope);
+        cleanup.DocumentSequences.Remove(allocated);
+        await cleanup.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task OUT_01_Outbox_Enqueue_PersistsPendingMessage()
     {
         await using var db = CreateIntegrationsDb();

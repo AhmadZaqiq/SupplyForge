@@ -146,31 +146,76 @@ public sealed class PlatformSharedServices :
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>PLT-073b: bounded compare-and-swap rounds per allocation.</summary>
+    private const int MaxAllocationAttempts = 100;
+
     public async Task<string> NextAsync(
         string scope,
         string prefix,
         int padWidth,
         CancellationToken cancellationToken = default)
     {
-        // Atomic increment under the ambient transaction when one is active;
-        // single-row upsert otherwise.
-        var seq = await _db.DocumentSequences
-            .FirstOrDefaultAsync(x => x.Scope == scope, cancellationToken);
-
-        if (seq is null)
+        // PLT-073b: allocation is a compare-and-swap on the value just read
+        // (the same pattern as TryClaimDeliveryAttemptAsync), never a
+        // read-modify-write — two concurrent callers can never mint the same
+        // number. The first caller inserts the row; a lost insert race finds
+        // the winner's row and takes the CAS path. Gaps stay allowed
+        // (PLT-073c); duplicates do not.
+        for (var attempt = 0; attempt < MaxAllocationAttempts; attempt++)
         {
-            seq = new DocumentSequence { Scope = scope, LastValue = 1, UpdatedAt = _clock.GetUtcNow() };
-            _db.DocumentSequences.Add(seq);
-        }
-        else
-        {
-            seq.LastValue++;
-            seq.UpdatedAt = _clock.GetUtcNow();
-            _db.DocumentSequences.Update(seq);
+            var current = await _db.DocumentSequences
+                .Where(x => x.Scope == scope)
+                .Select(x => (long?)x.LastValue)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (current is null)
+            {
+                var row = new DocumentSequence
+                {
+                    Scope = scope,
+                    LastValue = 1,
+                    UpdatedAt = _clock.GetUtcNow(),
+                };
+                _db.DocumentSequences.Add(row);
+                try
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                    return $"{prefix}{row.LastValue.ToString().PadLeft(padWidth, '0')}";
+                }
+                catch (DbUpdateException)
+                {
+                    // PK race on the first allocation: the row exists now
+                    // unless the failure was something else, which must not
+                    // be swallowed behind the retry.
+                    _db.Entry(row).State = EntityState.Detached;
+                    if (!await _db.DocumentSequences.AnyAsync(x => x.Scope == scope, cancellationToken))
+                    {
+                        throw;
+                    }
+
+                    continue;
+                }
+            }
+
+            var expected = current.Value;
+            var claimed = await _db.DocumentSequences
+                .Where(x => x.Scope == scope && x.LastValue == expected)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.LastValue, expected + 1)
+                    .SetProperty(x => x.UpdatedAt, _clock.GetUtcNow()),
+                    cancellationToken);
+
+            if (claimed == 1)
+            {
+                var next = expected + 1;
+                return $"{prefix}{next.ToString().PadLeft(padWidth, '0')}";
+            }
+
+            // Another caller advanced the row first — re-read and retry.
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
-        return $"{prefix}{seq.LastValue.ToString().PadLeft(padWidth, '0')}";
+        throw new InvalidOperationException(
+            $"Could not allocate sequence '{scope}' after {MaxAllocationAttempts} attempts.");
     }
 
     public async Task<Guid> RaiseAsync(
