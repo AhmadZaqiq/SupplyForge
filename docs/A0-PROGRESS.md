@@ -1077,3 +1077,100 @@ item — approve the delivery-state migration for PLT-051/052 + TD-2 — was
 PLT-013 password reset (awaits its own migration approval), BRN-012/SEC-12
 foreign-branch leg (first branch-owned resource in A1). Commit/push
 authorization for the working tree is still pending. **Next: `/slice A1`.**
+
+## A0-8 notes (2026-11-22) — hardening increment, 6/6 done
+
+Owner-assigned hardening run, executed after the A0 gate closed and A1-1/A1-2
+shipped. Protocol per item: read the PRD requirement → fix only that → add a
+test → verify strictly sequentially (`dotnet build` 0 warnings → `dotnet test`
+→ `dotnet format --verify-no-changes`) → one commit via `scripts/checkpoint.sh`.
+No migrations were needed. PRD reads: SEC-20/SEC-23 (`06d` §6.7),
+PLT-073a–e (`06b` §6.4.4), PLT-012 (`05-01`) + SEC-05 (`06d` §6.7.1),
+PLT-011 (`05-01`), OUT-01/02/04/06 (`04c` §4.5.3), MD-004 (`05-02`).
+
+1. **Startup secret guard — SEC-20/SEC-23 — `6085e9c`.**
+   `AddSupplyForge` now takes `IHostEnvironment` and, outside Development,
+   throws while `Auth:AccessTokenSecret` still equals the repository
+   placeholder; the message names the setting, never the value (SEC-23).
+   `dotnet ef` is unaffected (all three contexts implement
+   `IDesignTimeDbContextFactory` — probe-verified, `Program.cs` never runs at
+   design time). The three Host-spawning test classes that inherited the
+   default Production environment now set `ASPNETCORE_ENVIRONMENT=Development`
+   (`FailClosedAuthHttpTests`, `RateLimitHttpTests`,
+   `NotificationDeliveryHttpTests`; `HttpAuthMatrixTests` already did).
+   Tests: `SEC_20_Production_With_ShippedPlaceholderSecret_FailsStartup`,
+   `SEC_20_Development_With_ShippedPlaceholderSecret_Starts`,
+   `SEC_20_Production_With_ExplicitEnvironmentSecret_Starts`
+   (`tests/ArchitectureTests/StartupSecretGuardTests.cs` — run against the
+   real copied `appsettings.json`, so guard constant and file cannot drift).
+
+2. **`NextAsync` concurrency-safe — PLT-073b (PLT-073c gaps stay allowed) — `da012a6`.**
+   The read-modify-write in `PlatformSharedServices.NextAsync` became a
+   compare-and-swap (the `TryClaimDeliveryAttemptAsync` pattern): read
+   `LastValue`, conditional `ExecuteUpdateAsync WHERE LastValue == expected`,
+   bounded retry (100 rounds); first allocation inserts and, on a PK race,
+   re-checks the row exists — any other `DbUpdateException` rethrows instead
+   of being swallowed.
+   Test: `PLT_073b_ConcurrentNextAsync_NeverReturnsDuplicates` — 20 parallel
+   calls, one DbContext/connection per caller, 20 distinct numbers.
+
+3. **Login verifies the password before revealing account state — SEC-05/PLT-012 — `7eedfb9`.**
+   `AuthService.LoginAsync` reordered: wrong password → `invalid_credentials`
+   whether the account is inactive or locked (the unknown-user dummy verify
+   already existed); `user_inactive`/`locked_out` surface only after a correct
+   password. No PRD text requires the pre-password reveal — PLT-012/SEC-05
+   only require the lockout to exist.
+   Test: `SEC_05_PLT_012_Login_NeverRevealsAccountStateBeforePasswordVerified`
+   (inactive+wrong, inactive+correct, locked+wrong, locked+correct);
+   existing `PLT_012_Lockout_AfterFiveFailures` still green.
+
+4. **Refresh returns the real userId — PLT-011 — `18040d7`.**
+   `RefreshResult` gained `UserId` (all 5 construction sites updated) and the
+   refresh endpoint returns `result.UserId!.Value` instead of the hardcoded
+   `Guid.Empty`.
+   Tests: `PLT_011_Refresh_Rotation_Works_And_Reuse_Detects` (service level)
+   and `SEC_10_LoginRefresh_AllowAnonymous_StillWork` (HTTP: refresh `userId`
+   equals login's, neither empty).
+
+5. **`IOutbox` correlationId + transaction guard; `IInbox` fixed — OUT-01/OUT-06 — `d4accf0`.**
+   `EnqueueAsync(eventType, payloadJson, version, correlationId, ct)` — the
+   `OutboxMessage.CorrelationId` column already existed (no migration), and
+   enqueue now throws when `CurrentTransaction` is null (not inside the
+   ADR-003 ambient session / any transaction) rather than autocommitting a
+   row that would outlive a rollback of the domain change (OUT-01).
+   `IInbox.MarkProcessedAsync`/`MarkFailedAsync` now operate on
+   `InboxMessage` — they used to mutate `OutboxMessage`; `InboxMessage` has no
+   `AttemptCount`, so `MarkFailed` records `LastError` only, and the
+   redundant `MarkInboxProcessedAsync` (zero callers) was removed.
+   Three out-of-session test enqueues now join a local transaction; the
+   `OUT_01` test's recency-based `FirstAsync` (a latent cross-test flake) was
+   replaced by a unique-event-type lookup.
+   Tests: `OUT_01_Outbox_Enqueue_PersistsPendingMessage` (transaction +
+   correlationId persisted), `OUT_01_Outbox_Enqueue_WithoutActiveTransaction_Throws`,
+   `OUT_02_Inbox_MarkFailedAndProcessed_TouchInboxRowsOnly`.
+
+6. **README accuracy — MD-004 — `8d87159`.**
+   Login response line now documents the actual fields
+   (`userId, accessToken, refreshToken, expiresAt` — `expiresAt` proven by
+   the new HTTP assertion); the MD-004 gap is stated (no `UserRole`
+   assignment exists in `src/` yet, so the first user has no roles until
+   slice A1 — login works, permission-gated calls 403); the docker run
+   example now passes `Auth__AccessTokenSecret` with the Production
+   fail-fast note (SEC-20).
+   Test: the four documented fields asserted in
+   `SEC_10_LoginRefresh_AllowAnonymous_StillWork`.
+
+**Verification:** each item ran build → test → format strictly sequentially,
+all green before its commit. Final sweep: `dotnet build` 0 warnings 0 errors ·
+`dotnet test` → **201/201** (17 arch + 74 unit + 91 PlatformCore integration
++ 19 MasterData integration) · `dotnet format --verify-no-changes` → exit 0.
+Two runs hit the same **environmental** pattern — the first item-1 run (17
+`SqlException: Execution Timeout Expired` failures inside
+`ThrowawayDatabase.CreateAsync`) and one final-sweep attempt (19 failures,
+same timeout signature plus its downstream symptoms: a 15 s HTTP cancel and a
+"This SqlTransaction has completed" zombie) — both during host load spikes
+(load avg ≈ 6, SQL container healthy and CPU-idle, `vmstat` calm afterwards);
+the immediate re-run of each was fully green, and between the last green run
+and the red one only these docs changed (no source, no tests).
+Commits pushed one per item, local == remote SHA: `6085e9c`, `da012a6`,
+`7eedfb9`, `18040d7`, `d4accf0`, `8d87159`.
