@@ -49,6 +49,9 @@ public sealed class RateLimitHttpTests : IAsyncLifetime
         };
         psi.ArgumentList.Add(dll);
         psi.Environment["ASPNETCORE_URLS"] = $"http://[::]:{port}";
+        // A0-8 / SEC-20: Development, because the Host fails fast outside it
+        // while appsettings.json still holds the placeholder secret.
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         psi.Environment["RateLimit__AuthIpLimit"] = $"{IpLimit}";
         psi.Environment["RateLimit__AuthAccountLimit"] = $"{AccountLimit}";
         psi.Environment["RateLimit__AuthWindow"] = "00:00:06";

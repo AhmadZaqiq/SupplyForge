@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using SupplyForge.Host.Auth;
 using SupplyForge.Host.Authorization;
@@ -24,9 +25,17 @@ namespace SupplyForge.Host;
 
 public static class ServiceCollectionExtensions
 {
+    // A0-8 / SEC-20: the development placeholder shipped in appsettings.json.
+    // The guard in AddSupplyForge fails startup outside Development while this
+    // value is still configured; ArchitectureTests runs that guard against the
+    // real appsettings.json, so the constant and the file cannot drift apart.
+    private const string DevelopmentPlaceholderSecret =
+        "SupplyForge_Dev_AccessTokenSecret_ChangeMe_0123456789";
+
     public static IServiceCollection AddSupplyForge(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         var connectionString = configuration.GetConnectionString("SupplyForge")
             ?? throw new InvalidOperationException("Connection string 'SupplyForge' is missing.");
@@ -90,6 +99,17 @@ public static class ServiceCollectionExtensions
         {
             throw new InvalidOperationException(
                 "Auth:AccessTokenSecret must be at least 32 bytes (set via environment variable Auth__AccessTokenSecret).");
+        }
+
+        // A0-8 / SEC-20: outside Development the repository placeholder must
+        // never sign tokens — a Production/Docker start with the checked-in
+        // dev secret fails fast instead of serving real sessions. The message
+        // names the setting only, never the value (SEC-23).
+        if (!environment.IsDevelopment() && jwtSecret == DevelopmentPlaceholderSecret)
+        {
+            throw new InvalidOperationException(
+                "Auth:AccessTokenSecret is still the repository development placeholder. " +
+                "Set it via the environment (Auth__AccessTokenSecret) or a secret store before running outside Development.");
         }
 
         services.AddSingleton<IAccessTokenIssuer>(sp =>

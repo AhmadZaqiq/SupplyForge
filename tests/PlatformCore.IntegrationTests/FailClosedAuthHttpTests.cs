@@ -49,6 +49,11 @@ public sealed class FailClosedAuthHttpTests : IAsyncLifetime
         };
         psi.ArgumentList.Add(dll);
         psi.Environment["ASPNETCORE_URLS"] = _baseUrl;
+        // A0-8 / SEC-20: the Host refuses to start outside Development while
+        // appsettings.json holds the placeholder secret; these tests run
+        // against that file, so they start in Development (as HttpAuthMatrixTests
+        // already does).
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
 
         _host = new Process { StartInfo = psi };
         _host.OutputDataReceived += (_, e) => AppendHostLog(e.Data);

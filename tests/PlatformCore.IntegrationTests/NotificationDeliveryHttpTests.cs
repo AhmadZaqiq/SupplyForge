@@ -46,6 +46,9 @@ public sealed class NotificationDeliveryHttpTests : IAsyncLifetime
         };
         psi.ArgumentList.Add(dll);
         psi.Environment["ASPNETCORE_URLS"] = _baseUrl;
+        // A0-8 / SEC-20: Development, because the Host fails fast outside it
+        // while appsettings.json still holds the placeholder secret.
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         // ADR-008 failure injection: every fake send throws; two attempts
         // with a near-instant backoff so the worker dead-letters within the
         // test budget instead of the default 5s/3-attempt schedule.

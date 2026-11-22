@@ -14,7 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 // INT-052: OpenAPI from code; ADR-006 §8–9 — both auth schemes documented,
 // per-endpoint security from endpoint metadata (SupplyForgeOpenApi).
 builder.Services.AddOpenApi(options => options.UseSupplyForgeConventions());
-builder.Services.AddSupplyForge(builder.Configuration);
+builder.Services.AddSupplyForge(builder.Configuration, builder.Environment);
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
