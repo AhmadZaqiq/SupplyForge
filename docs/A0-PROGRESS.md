@@ -1,6 +1,6 @@
 # A0 Progress — SupplyForge
 
-Slice: **A0 Foundations** (PRD §11.2). Updated: 2026-11-20.
+Slice: **A0 Foundations** (PRD §11.2). Updated: 2026-11-23.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
 
@@ -1174,3 +1174,49 @@ the immediate re-run of each was fully green, and between the last green run
 and the red one only these docs changed (no source, no tests).
 Commits pushed one per item, local == remote SHA: `6085e9c`, `da012a6`,
 `7eedfb9`, `18040d7`, `d4accf0`, `8d87159`.
+
+## A0-9 notes (2026-11-23) — login enumeration on the wrong-password path
+
+- **PRD gate (checked before coding):** no requirement text forces the client to
+  receive `lockedUntil` on a failed attempt. `PLT-012` = "Lockout + rate limit on
+  auth.", `SEC-05` = "Lockout after repeated failures."; zero occurrences of
+  `lockedUntil`/`locked_until`/"locked until" and no enumeration / indistinguishable
+  / same-response wording anywhere in `docs/prd/` (excluding `_archive`).
+  `SEC-23` (errors do not leak secrets) supports the change. The fix closes a leak
+  without changing any requirement.
+- **Defect:** `AuthService.LoginAsync`'s wrong-password path returned
+  `user.LockedUntil`, and `AuthEndpoints` echoed it as the `lockedUntil` extension
+  on every 401. `LockedUntil` is only cleared by a successful login, so an existing
+  account — including one locked long ago — answered differently from a
+  non-existent one and the failure body enumerated accounts.
+- **Fix:** the wrong-password path now returns `LockedUntil = null`, the same
+  shape as the unknown-user path; only the `locked_out` result, which requires the
+  correct password, still carries `LockedUntil`. The endpoint keeps the field and
+  documents why it is safe there.
+- **New HTTP test (real Host):**
+  `SEC_05_PLT_012_WrongPasswordBody_IsIndistinguishableFromUnknownUser_InAllThreeLockStates`
+  compares status + the **whole body** (title, code, extensions) for an unknown
+  user vs an existing user with a wrong password in three states — normal,
+  currently locked, and lock expired (stale `LockedUntil` still in the row) —
+  asserting byte-equality after masking only the per-request W3C `traceId`
+  (correlation data, the body twin of the `X-Correlation-ID` header) and asserting
+  `lockedUntil` is explicitly null in the shared body. Positive control in the
+  same test: the same account with the **correct** password answers 429 with a
+  real `lockedUntil`, proving both halves of "only `locked_out` carries it".
+- **Existing test rewritten:** the `locked_out` assertion in
+  `SqlServerIntegrationTests` now proves the lock from **persisted state**
+  (`user.LockedUntil` not null and in the future) instead of reading
+  `locked.LockedUntil` off the response.
+- **Verification (strictly sequential):** `dotnet build` 0 warnings 0 errors ·
+  `dotnet test` → **202/202, two consecutive green runs** (6 MasterData unit +
+  17 arch + 68 PlatformCore unit + 19 MasterData integration + 92 PlatformCore
+  integration; +1 over the A0-8 baseline of 201) ·
+  `dotnet format --verify-no-changes` → exit 0.
+  One intermediate run went red with 9 failures while the host load average was
+  ≈ 5.5 — the documented environmental `SqlException: Execution Timeout Expired`
+  signature (SQL container healthy, `vmstat` CPU 98 % idle). That run's output was
+  tailed rather than saved, so its full messages are not retained; the identical
+  code then produced the two green runs above at calm load.
+- **Also in this commit:** `HANDOFF.md` §2 pending line flipped (R0 closed
+  `8dbf1ab`, next A1-3), both HANDOFFs byte-identical; `.github/workflows/ci.yml`
+  comment-only path fix (`root dotnet-tools.json` → `.config/dotnet-tools.json`).

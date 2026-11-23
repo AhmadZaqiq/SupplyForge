@@ -370,6 +370,19 @@ public sealed class HttpAuthMatrixTests : IAsyncLifetime
         return accessToken!;
     }
 
+    /// <summary>Posts a login attempt with an arbitrary password (A0-9).</summary>
+    private Task<HttpResponseMessage> PostLoginAsync(string userName, string password) =>
+        _client.PostAsync(
+            $"{_baseUrl}/api/v1/auth/login",
+            Json(new { userName, password }));
+
+    /// <summary>
+    /// Replaces the per-request W3C trace id so two failure bodies can be
+    /// compared byte-for-byte; every other byte must be equal (A0-9).
+    /// </summary>
+    private static string WithoutTraceId(string body) =>
+        Regex.Replace(body, "\"traceId\":\"[^\"]*\"", "\"traceId\":\"<per-request>\"");
+
     [Theory]
     [InlineData("malformed")]
     [InlineData("tampered")]
@@ -517,6 +530,89 @@ public sealed class HttpAuthMatrixTests : IAsyncLifetime
         await TestPermissionGrant.RemoveGrantAsync(readGrantId);
         await CleanupNotificationAsync(id);
         await CleanupAsync(userName, Guid.Empty);
+    }
+
+    // --- A0-9: login enumeration (PLT-012 / SEC-05) — the login failure
+    // body must not reveal whether the account exists, or that it is/was
+    // locked. ---
+
+    [Fact]
+    public async Task SEC_05_PLT_012_WrongPasswordBody_IsIndistinguishableFromUnknownUser_InAllThreeLockStates()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var existing = $"a09_user_{suffix}";
+        var missing = $"a09_nobody_{suffix}";
+
+        // Existing, active, never-locked account with a known password.
+        await TestUsers.CreateAsync(existing, "Passw0rd!x");
+
+        // State 0: unknown account (the reference answer).
+        var unknown = await PostLoginAsync(missing, "wrong-password");
+
+        // State 1: existing account, normal (never locked).
+        var normal = await PostLoginAsync(existing, "wrong-password");
+
+        // State 2: existing account, currently locked.
+        await using (var db = TestPermissionGrant.CreateDb())
+        {
+            var user = await db.Users.SingleAsync(x => x.UserName == existing);
+            user.LockedUntil = DateTimeOffset.UtcNow.AddMinutes(5);
+            await db.SaveChangesAsync();
+        }
+
+        var lockedNow = await PostLoginAsync(existing, "wrong-password");
+
+        // Positive control for "only locked_out carries lockedUntil": with the
+        // CORRECT password the lock is revealed (429 + a real date), which is
+        // what makes the four wrong-password answers above meaningful.
+        var lockedCorrect = await PostLoginAsync(existing, "Passw0rd!x");
+        Assert.Equal(HttpStatusCode.TooManyRequests, lockedCorrect.StatusCode);
+        using (var lockedDoc = JsonDocument.Parse(await lockedCorrect.Content.ReadAsStringAsync()))
+        {
+            var echoed = lockedDoc.RootElement.GetProperty("lockedUntil");
+            Assert.NotEqual(JsonValueKind.Null, echoed.ValueKind);
+        }
+
+        // State 3: the lock has expired. LockedUntil is only cleared by a
+        // successful login, so the stale value is still in the row — it must
+        // not surface either.
+        await using (var db = TestPermissionGrant.CreateDb())
+        {
+            var user = await db.Users.SingleAsync(x => x.UserName == existing);
+            user.LockedUntil = DateTimeOffset.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var lockExpired = await PostLoginAsync(existing, "wrong-password");
+
+        // Full comparison: status code + whole body (title, code, extensions).
+        // The only permitted difference is the per-request W3C traceId —
+        // correlation data that differs for every request by design (the
+        // X-Correlation-ID header likewise differs and is not part of the
+        // body contract). Everything else must be byte-identical.
+        var unknownBody = WithoutTraceId(await unknown.Content.ReadAsStringAsync());
+        var normalBody = WithoutTraceId(await normal.Content.ReadAsStringAsync());
+        var lockedNowBody = WithoutTraceId(await lockedNow.Content.ReadAsStringAsync());
+        var lockExpiredBody = WithoutTraceId(await lockExpired.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
+        Assert.Equal(unknown.StatusCode, normal.StatusCode);
+        Assert.Equal(unknown.StatusCode, lockedNow.StatusCode);
+        Assert.Equal(unknown.StatusCode, lockExpired.StatusCode);
+        Assert.Equal(unknownBody, normalBody);
+        Assert.Equal(unknownBody, lockedNowBody);
+        Assert.Equal(unknownBody, lockExpiredBody);
+
+        // The shared answer really is invalid_credentials, and it carries no
+        // lock date — not even as an explicit null-vs-value difference.
+        Assert.Contains("invalid_credentials", unknownBody);
+        using var body = JsonDocument.Parse(unknownBody);
+        if (body.RootElement.TryGetProperty("lockedUntil", out var lockedUntil))
+        {
+            Assert.Equal(JsonValueKind.Null, lockedUntil.ValueKind);
+        }
+
+        await CleanupAsync(existing, Guid.Empty);
     }
 
     private async Task CleanupNotificationAsync(Guid notificationId)

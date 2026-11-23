@@ -53,7 +53,7 @@ jobs:
         run: dotnet format --verify-no-changes
 
       # Root cause of the first CI run failing: `dotnet ef` resolves through
-      # the root dotnet-tools.json manifest (pinned dotnet-ef 10.0.15), which
+      # the .config/dotnet-tools.json manifest (pinned dotnet-ef 10.0.15), which
       # takes precedence over any global install — a fresh checkout must
       # restore the manifest or the command exits with a restore hint.
       - name: Restore manifest-pinned tools (dotnet-ef 10.0.15)

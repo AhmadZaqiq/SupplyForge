@@ -236,7 +236,13 @@ public sealed class AuthService
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-            return new LoginResult(false, "invalid_credentials", null, null, null, user.LockedUntil, null);
+            // A0-9 / PLT-012 / SEC-05: never echo the lock state on a wrong
+            // password. An unknown user and an existing user — even one that was
+            // ever locked, since LockedUntil is only cleared on a successful
+            // login — must be indistinguishable here, or the response enumerates
+            // accounts. Only the locked_out result below, which requires the
+            // correct password, may carry LockedUntil.
+            return new LoginResult(false, "invalid_credentials", null, null, null, null, null);
         }
 
         if (!user.IsActive)

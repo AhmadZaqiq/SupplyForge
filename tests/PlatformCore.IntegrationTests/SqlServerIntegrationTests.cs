@@ -458,10 +458,14 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         var locked = await auth.LoginAsync(userName, "Passw0rd!x");
         Assert.False(locked.Success);
         Assert.Equal("locked_out", locked.Error);
-        Assert.NotNull(locked.LockedUntil);
 
         await using var db2 = CreatePlatformDb();
         var user = await db2.Users.FirstAsync(x => x.Id == created.UserId);
+        // A0-9: prove the lock from persisted state, not the response. The
+        // login result no longer echoes LockedUntil except on locked_out, and
+        // the wrong-password path must never reveal account state (SEC-05).
+        Assert.NotNull(user.LockedUntil);
+        Assert.True(user.LockedUntil > DateTimeOffset.UtcNow);
         var tokens = await db2.RefreshTokens.Where(t => t.UserId == created.UserId).ToListAsync();
         db2.RefreshTokens.RemoveRange(tokens);
         db2.Users.Remove(user);

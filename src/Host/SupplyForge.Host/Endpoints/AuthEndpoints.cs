@@ -38,6 +38,9 @@ public static class AuthEndpoints
                     _ => StatusCodes.Status400BadRequest,
                 };
 
+                // A0-9 / SEC-05: LoginResult.LockedUntil is null for every
+                // failure except locked_out (which requires the correct
+                // password), so this field cannot enumerate accounts.
                 return Results.Problem(
                     statusCode: status,
                     title: result.Error,
