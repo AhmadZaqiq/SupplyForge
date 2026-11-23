@@ -26,10 +26,11 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 | `ADR/`, `docs/Decision Register.md` | **Present.** ADR-001…006, 008, 009 drafted and **Accepted by the owner 2026-11-16**. Decision Register created. ADR-007 and ADR-010…016 **not drafted yet** (write them when their slice needs them). `adr-review-report.md` reflects the acceptance |
 | `SF.png` | **Missing.** The owner will add it later; references stay as they are |
 | Application code | **M0 + A0 foundations + A1-1.** M0-0…M0-5, A0-1 (JWT), A0-2/A0-2b (rate limiting + defect fix), A0-3 (permission catalogue/role bundles, create-user bootstrap, deny-default authorization — 9/9 steps), A0-4 (BRN HTTP matrix, PLT-044 redaction, INT-052 OpenAPI security schemes), A0-5 (CI workflow + README; **CI green on GitHub** since run `44439119956`, 2026-11-19), A0-6 (ADR-003 ambient session S1–S6 incl. HTTP notification round-trip + `AuthService` on the session), A0-7 (notification delivery state — PLT-051 visible pending, PLT-052 retry worker → dead-letter `Failed`, TD-2 audited mark-sent, delivery fields on the read API; owner-approved migration `20261119033923_AddNotificationDeliveryState` **applied to the dev DB**) — all **done and pushed in `48bd9df`**; sweep **169/169 ×2**. **A0 gate: closed** — all five PRD §11.2 items evidenced in `docs/A0-PROGRESS.md`. PLT-013 deferred by owner decision (migration not approved). **A1-1 done 2026-11-20** (committed in `704b665`): `MasterData` module per ADR-001, `master_data` schema + company singleton + 3-branch seed (MD-001/MD-002), migration file `20261119232720_A1InitialMasterData`, ambient session generalised 2 → N contexts (ADR-003), MOD-10 arch-test extension, CI migration line, new `tests/MasterData.IntegrationTests` (10 tests, throwaway databases); sweep **179/179**, format clean. **A1-2 done 2026-11-22** (committed in `704b665`): product catalogue — `Product`/`ProductStatus`/`Category`/`UnitOfMeasure`/`UnitOfMeasureConversion` (MD-010…MD-013, decisions D-a…D-j in `docs/A1-PROGRESS.md` §1a), `master_data` model extended + migration `20261120110027_A1ProductCatalogue` (all five FKs `Restrict`, zero cascades per PRD "deactivate not delete"), new `tests/MasterData.UnitTests` (6 tests) + 9 catalogue integration tests, one A1-1 test de-coupled from the growing table count; sweep **194/194**, format clean. **A0-8 hardening done 2026-11-22** (6 items: SEC-20 startup guard fails outside Development on the placeholder secret, PLT-073b `NextAsync` via compare-and-swap, SEC-05/PLT-012 password verified before `user_inactive`/`locked_out`, PLT-011 refresh returns the real `userId`, OUT-01/OUT-06 `IOutbox` correlationId + active-transaction guard + `IInbox` fixed to operate on `InboxMessage`, MD-004 README accuracy) — one commit per item pushed: `6085e9c`, `da012a6`, `7eedfb9`, `18040d7`, `d4accf0`, `8d87159`; sweep **201/201**, format clean. Status detail: `docs/A0-PROGRESS.md` (incl. §A0-8), `docs/A1-PROGRESS.md` |
+| `docs/DATABASE-GUIDE.md` (increment **D0**) | **Done 2026-11-23.** All 23 tables across the 3 modules — one sentence of purpose, key columns and relationships each — plus one Mermaid ER diagram per module, a "life of a login request" walkthrough naming every table it touches, 2 example rows for each of the 9 main tables, and a glossary that defines every term at first use. Read-only test-parallelism investigation recorded in §12. **Docs only: no source, test or config changed** |
 | Git | Initial commit on `main`; owner-approved publish to `https://github.com/AhmadZaqiq/SupplyForge` (2026-11-18). The earlier "do not commit for now" instruction is superseded |
 | Pre-quota checkpoint workflow | **Done.** `scripts/quota-status.sh` reads the official `GET /api/experimental/usage/limits`. On this machine it exits **3 (unknown)** — signed in to workspace `Personal`, but no Go meters and no budgets, so **no number is guessed**; the fallback trigger is a usage-limit response from the provider. `scripts/checkpoint.sh` runs verify → `git status` + full diff → explicit-path staging → secret/artifact guards → both-HANDOFF guard → commit → push (never force) → `ls-remote` SHA proof. Docs `docs/pre-quota-checkpoint.md`; commands `/quota`, `/checkpoint`. Verified 2026-11-19: `--verify-only` PASS (11.4 s); `--dry-run` staged exactly the intended files; **live run pushed `94b1263` and `ls-remote` matched the local SHA**. That run also exposed a real bug — bash `test` compares `[ "$x" != VERIFIED* ]` **literally**, so the success branch was skipped and a verified push was reported as a failure; fixed with `case` and locked in by `scripts/checkpoint-selftest.sh` (**19/19**: every guard plus the SKIPPED / VERIFIED / failed-push branches, in throwaway repos with a local bare `origin`). Still code-reviewed only, not executed: exit 10/20 (no meter data exists on this machine) and exit 7 (branch behind origin). Detail: section 11 |
 
-Pending, in order: **A0-9 login-enumeration hardening closed 2026-11-23** (wrong-password path no longer echoes `lockedUntil`; HTTP failure body indistinguishable from an unknown user in all three lock states — see `docs/A0-PROGRESS.md` A0-9 notes) → **R0 repository tidy-up closed 2026-11-23** (`8dbf1ab`, Phase 1 + Phase 2, structure only) → then A1-3…A1-9 per `docs/A1-PROGRESS.md` §1 (A1-1/A1-2 committed in `704b665`). Owner decisions still open before their slices: **ADR-007** (approval engine → the INV-041 gate item), **ADR-011** (logo-upload gate item), **OD-03/TD-5** (WAC reversal eligibility), **B4/DM-3** (surrogate-key style — Guid default in force), PLT-013 migration approval, Q-5 email-in-P1 before B4. Q-3 branch codes/names are placeholders until answered.
+Pending, in order: **D0 documentation + read-only investigation closed 2026-11-23** (`docs/DATABASE-GUIDE.md`; parallelism findings in §12; **docs only — no source, test or config changed**) → **A0-9 login-enumeration hardening closed 2026-11-23** (`3270b93`) → **R0 repository tidy-up closed 2026-11-23** (`8dbf1ab`) → then **A1-3 next, DB-first working style** …A1-9 per `docs/A1-PROGRESS.md` §1 (A1-1/A1-2 committed in `704b665`). Owner decisions still open before their slices: **ADR-007** (approval engine → the INV-041 gate item), **ADR-011** (logo-upload gate item), **OD-03/TD-5** (WAC reversal eligibility), **B4/DM-3** (surrogate-key style — Guid default in force), PLT-013 migration approval, Q-5 email-in-P1 before B4. Q-3 branch codes/names are placeholders until answered.
 
 ## 3. Environment
 
@@ -169,6 +170,12 @@ Stop and ask (PRD §0 rule 3), do not decide: text marked `NEEDS OWNER APPROVAL`
 
 If #3 fails: section 8 item 4. If the VS Code extension does not install: run `opencode` from the **integrated** terminal, check the `code` command exists (`which code`), restart the terminal.
 
+**Test-failure rule (owner, 2026-11-23 — applies to every future run).** Whenever
+tests fail, save the **full** output to a file *first*, before reading or
+re-running: `dotnet test 2>&1 | tee /tmp/test-run-N.txt`. Never tail and discard.
+A failure message that was not captured cannot be diagnosed later, and re-running
+overwrites the evidence. Capture, then read, then decide.
+
 ## 10. How to continue (instructions to the next AI)
 
 1. Reply to the owner briefly. Lead with the result.
@@ -206,3 +213,37 @@ Full detail: `docs/pre-quota-checkpoint.md`. Commands: `scripts/quota-status.sh`
 **Safety.** Never force-push, never rewrite history, never reset/restore/delete to make a checkpoint pass. Commit and push still need owner approval (project `AGENTS.md`) — the script automates the sequence, not the permission. After any change to `checkpoint.sh`, run `scripts/checkpoint-selftest.sh` (19 cases in throwaway repos; exit 0 = every guard still behaves). Last-run artefacts are in `.git/checkpoint/` (inside `.git`, never committable).
 
 **If the quota runs out mid-task:** `git fetch origin && git status`, read these HANDOFF files, confirm the tree is clean, and continue from the last verified GitHub checkpoint. Nothing is lost as long as that checkpoint was verified.
+
+## 12. Known gaps backlog (recorded by D0, 2026-11-23)
+
+Documentation only — **nothing below is implemented, and nothing here is approved work**. Each
+item needs an owner decision before the slice that would touch it. Verified against source on
+2026-11-23.
+
+1. **Password storage and policy.** `PasswordHasher` uses PBKDF2 with **100,000 iterations**
+   (`PasswordHasher.Iterations`), and there is **no password policy anywhere** — no minimum
+   length, complexity, expiry or history rule.
+2. **Refresh-token rotation is not atomic.** `RefreshToken` carries **no concurrency token**
+   (no `RowVersion` / `IsConcurrencyToken`, unlike `User`, `Branch`, `Product`), so
+   `RefreshAsync`'s revoke-then-insert has no optimistic-concurrency guard and two concurrent
+   refreshes can both succeed.
+3. **Outbox is under-specified and unowned.** `integrations.OutboxMessage` has **no `BranchId`,
+   no `CausationId`, no retry-scheduling column** (only `AttemptCount` + `LastError`), and
+   **nothing owns the outbox dispatcher** — rows are written but never dispatched
+   (OUT-03/OUT-07, PLT-071).
+4. **Container privileges.** The `Dockerfile` runs as **root** (no `USER` directive), and the
+   application connects to SQL Server as **sa**.
+5. **API-key auth is not an authentication scheme.** It is a **manual `X-Api-Key` header check
+   inside one endpoint** (`GET /api/v1/api-keys/me`, `.AllowAnonymous()`); the only registered
+   scheme is JWT Bearer.
+6. **No integration test proves branch isolation yet.** BRN-012 (the foreign-branch leg) lands
+   with the **first branch-owned entity in A1**; current tests only cover status discrimination.
+
+### D0 findings (read-only): do the two integration projects run in parallel?
+
+**Yes.** `dotnet test` starts one VSTest host per test project concurrently (five interleaved `Test run for …` banners in a saved log), and with no `xunit.runner.json` / `.runsettings` / `[CollectionBehavior]` the xUnit 2.9.3 defaults apply — classes run in parallel up to 12 threads (12 classes in PlatformCore.IntegrationTests, 4 of which each spawn a real Host).
+Measured on a green run (202/202, 109 s wall): **4 testhost + 4 Host processes alive at once**, SQL container peaked at **110 % CPU**, available RAM fell **4.2 → 1.6 GB** with swap-out up to **22 MB/s**, while `iowait` stayed **0 %** and CPU reached **99 % busy** (run queue 34 on 12 CPUs).
+Both projects use `Server=localhost,1433`: PlatformCore integration tests hit the **shared `SupplyForge` dev DB** while MasterData integration tests **CREATE/DROP throwaway DBs on the same server**; the container has **no CPU/memory limits** and WSL2 has no `.wslconfig` (≈8 GB of 16 GB).
+`D:` holds both VHDX files and is a **SATA SSD** (`Get-PhysicalDisk`), so WSL's `ROTA=1` is **not** evidence of a spinning disk.
+**Verdict: contention is a plausible contributor to the recurring `Execution Timeout Expired`, not yet proven as the cause — nothing was changed.**
+Options, none applied: **A** run the two integration projects sequentially (no repo change) · **B** cap xUnit parallelism for the integration projects · **C** give the SQL container CPU/memory limits · **D** capture full output + `iostat`/`docker stats` on the next red run · **E** raise the SqlClient command timeout (masks the symptom, not recommended).
