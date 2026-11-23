@@ -63,7 +63,16 @@ SupplyForge/
 │   ├─ evals/smoke-tests.md       run after changing the library
 │   └─ README.md, SOURCES.md
 ├─ README.md                      architecture overview + runbook (NFR-061/062)
-├─ src/                           Host + Modules (PlatformCore, Integrations, MasterData) + Shared
+├─ src/                           Host + Modules + Shared
+│   └─ Modules/                   built: PlatformCore, Integrations, MasterData
+│       ├─ Inventory/             planned, not built (A1)
+│       ├─ Procurement/           planned, not built (A2)
+│       ├─ Inbound/               planned, not built (A2)
+│       ├─ Sales/                 planned, not built (A3)
+│       ├─ Fulfillment/           planned, not built (A4)
+│       ├─ Shipping/              planned, not built (A4)
+│       ├─ Finance/               planned, not built (B1)
+│       └─ Reporting/             planned, not built (B3)
 ├─ tests/                         ArchitectureTests, PlatformCore.UnitTests, PlatformCore.IntegrationTests, MasterData.UnitTests, MasterData.IntegrationTests
 ├─ docs/
 │   ├─ HANDOFF.md                 this file

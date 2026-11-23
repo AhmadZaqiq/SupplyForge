@@ -88,6 +88,7 @@ clean · CI green on GitHub (run `44439119956` on `main`).
 | `docs/A0-PROGRESS.md` | Increment log: what was done, evidence, defects |
 | `HANDOFF.md` / `docs/HANDOFF.md` | Current-state handoff (kept byte-identical) |
 | `AGENTS.md` | Working agreements for AI-assisted development |
+| `src/Modules/` | Built: PlatformCore, Integrations, MasterData. Planned, not built: Inventory (A1), Procurement (A2), Inbound (A2), Sales (A3), Fulfillment (A4), Shipping (A4), Finance (B1), Reporting (B3) |
 | `.github/workflows/ci.yml` | CI definition (NFR-061) |
 
 ## Runbook
