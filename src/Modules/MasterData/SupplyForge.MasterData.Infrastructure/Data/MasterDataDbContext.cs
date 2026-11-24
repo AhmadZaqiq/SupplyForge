@@ -5,11 +5,13 @@ namespace SupplyForge.MasterData.Infrastructure.Data;
 
 /// <summary>
 /// Master Data module DbContext (ADR-001, ADR-003). Owns the
-/// <c>master_data</c> schema: company singleton, branches, and the product
-/// catalogue (product, category hierarchy, UoM + conversions); partners and
-/// the warehouse/location catalogue arrive in later A1 increments. No other
-/// module may read or write these tables (MOD-1) — cross-module access goes
-/// through this module's public contracts.
+/// <c>master_data</c> schema: company singleton, branches, the product
+/// catalogue (product, category hierarchy, UoM + conversions), and the
+/// partners + shared master of A1-3 (supplier, customer, addresses, tax
+/// rates, payment terms, reason codes); the warehouse/location catalogue
+/// arrives in a later A1 increment. No other module may read or write these
+/// tables (MOD-1) — cross-module access goes through this module's public
+/// contracts.
 /// </summary>
 public class MasterDataDbContext : DbContext
 {
@@ -26,6 +28,13 @@ public class MasterDataDbContext : DbContext
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<UnitOfMeasure> UnitsOfMeasure => Set<UnitOfMeasure>();
     public DbSet<UnitOfMeasureConversion> UnitOfMeasureConversions => Set<UnitOfMeasureConversion>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<SupplierAddress> SupplierAddresses => Set<SupplierAddress>();
+    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
+    public DbSet<TaxRate> TaxRates => Set<TaxRate>();
+    public DbSet<PaymentTerm> PaymentTerms => Set<PaymentTerm>();
+    public DbSet<ReasonCode> ReasonCodes => Set<ReasonCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -121,6 +130,120 @@ public class MasterDataDbContext : DbContext
             // under its products — so deletion is blocked, not cascaded.
             e.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.BaseUnitOfMeasure).WithMany().HasForeignKey(x => x.BaseUnitOfMeasureId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        // A1-3 — MD-020/030/031/050 + PLT-075 (decisions D1…D17 in
+        // A1-PROGRESS §1b). Every FK below is Restrict: referenced records
+        // deactivate, they are never hard-deleted (PLT-075, MD rules), and
+        // EF's convention indexes on the FK columns are deliberately kept.
+
+        modelBuilder.Entity<Supplier>(e =>
+        {
+            e.ToTable("Supplier");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired(); // DM-5
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<Customer>(e =>
+        {
+            e.ToTable("Customer", t =>
+            {
+                // Owner answer Q1: NOT NULL with default 0 = "no credit", and
+                // P1 has no unlimited value (TD-3 fails closed). A negative
+                // limit would silently pre-authorise credit — same rationale
+                // as A1-2's Factor > 0.
+                t.HasCheckConstraint("CK_Customer_CreditLimit_NonNegative", "[CreditLimit] >= 0");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired(); // DM-5
+            e.Property(x => x.CreditLimit).HasPrecision(18, 2).HasDefaultValue(0m); // DM-2 money, A-1
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<SupplierAddress>(e =>
+        {
+            e.ToTable("SupplierAddress");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Line1).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Line2).HasMaxLength(200);
+            e.Property(x => x.City).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Region).HasMaxLength(100);
+            e.Property(x => x.PostalCode).HasMaxLength(20);
+            e.Property(x => x.Country).HasMaxLength(100).IsRequired();
+            // Owner answer Q2: at most one default shipping and one default
+            // billing address per supplier, enforced by the schema. A filtered
+            // unique index is unique only among rows where the flag is 1.
+            e.HasIndex(x => new { x.SupplierId, x.IsDefaultShipping }).IsUnique().HasFilter("[IsDefaultShipping] = 1");
+            e.HasIndex(x => new { x.SupplierId, x.IsDefaultBilling }).IsUnique().HasFilter("[IsDefaultBilling] = 1");
+            e.HasOne(x => x.Supplier).WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<CustomerAddress>(e =>
+        {
+            e.ToTable("CustomerAddress");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Line1).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Line2).HasMaxLength(200);
+            e.Property(x => x.City).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Region).HasMaxLength(100);
+            e.Property(x => x.PostalCode).HasMaxLength(20);
+            e.Property(x => x.Country).HasMaxLength(100).IsRequired();
+            // Owner answer Q2 — same two default indexes as SupplierAddress.
+            e.HasIndex(x => new { x.CustomerId, x.IsDefaultShipping }).IsUnique().HasFilter("[IsDefaultShipping] = 1");
+            e.HasIndex(x => new { x.CustomerId, x.IsDefaultBilling }).IsUnique().HasFilter("[IsDefaultBilling] = 1");
+            e.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<TaxRate>(e =>
+        {
+            e.ToTable("TaxRate", t =>
+            {
+                // FIN-CALC-10: a percentage outside 0…100 silently corrupts
+                // every tax line it touches.
+                t.HasCheckConstraint("CK_TaxRate_Rate_Between0And100", "[Rate] BETWEEN 0 AND 100");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique();
+            e.Property(x => x.Rate).HasPrecision(9, 6); // FIN-CALC-10 ~6 dp
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<PaymentTerm>(e =>
+        {
+            e.ToTable("PaymentTerm", t =>
+            {
+                // FIN-021 derives due dates from DueDays; a negative day
+                // count would move due dates into the past by design.
+                t.HasCheckConstraint("CK_PaymentTerm_DueDays_NonNegative", "[DueDays] >= 0");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique();
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<ReasonCode>(e =>
+        {
+            e.ToTable("ReasonCode");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            // One global list (decision D9): the unique code is the handle
+            // every consumer (INV-040, INB-037, …) references.
+            e.HasIndex(x => x.Code).IsUnique();
             e.Property(x => x.RowVersion).IsRowVersion();
         });
     }

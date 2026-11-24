@@ -83,6 +83,7 @@
 | ID | Item | Status |
 |---|---|---|
 | PA-17 | A5 money stub optional; default skip | In force (TD-6) |
+| PA-18 | **DM-3 amendment, owner-accepted 2026-11-24:** Guid surrogate keys are the project key style (not BIGINT). Accepts option (a) of `A1-PROGRESS.md` §0 B4 — the default already in force since A1-1 (`Company.Id`, `Branch.Id`, all A0 platform ids). DM-3's BIGINT text stands superseded for surrogate keys; no conversion scheduled. | **Accepted** (A1-3 answer D2) |
 | — | Other PA/PC | None recorded yet |
 
 ---
@@ -105,3 +106,4 @@
 |---|---|
 | 2026-11-16 | Register created; ADR-001…006, 008, 009 drafted as Proposed pending PO review |
 | 2026-11-16 | PO accepted ADR-001…006, 008, 009 + defaults; ADR-004 topic = Identity; `X-Api-Key` frozen; M0-0…M0-5 approved; local-only EF migrations approved; no baseline commit |
+| 2026-11-24 | **PA-18 added:** owner accepted Guid surrogate keys as the project key style — DM-3 amendment (A1-3 answer D2). A1-3 design decisions D1–D17 and Q1–Q7 recorded in `docs/A1-PROGRESS.md` §1b |

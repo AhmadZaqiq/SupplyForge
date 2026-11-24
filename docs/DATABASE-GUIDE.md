@@ -9,7 +9,7 @@ cross-checked against the entity classes. This guide is **descriptive of the
 current schema, not a requirements source** — it goes stale the moment a
 migration changes the model, so re-read the snapshot when that happens.
 
-**Scope:** 3 modules, 3 schemas, **23 tables**, all in one SQL Server database
+**Scope:** 3 modules, 3 schemas, **30 tables**, all in one SQL Server database
 (`SupplyForge`). Nothing outside these three modules owns tables yet.
 
 ---
@@ -43,7 +43,7 @@ Every term below is defined here once and reused afterwards.
 | Module | Schema | Tables | Owns |
 |---|---|---|---|
 | **PlatformCore** | `platform` | 14 | Identity (users/roles/permissions), tokens, API keys, audit trail, notifications, sequences, idempotency, job runs |
-| **MasterData** | `master_data` | 6 | Company, branches, product catalogue |
+| **MasterData** | `master_data` | 13 | Company, branches, product catalogue, partners (supplier/customer + addresses), tax rates, payment terms, reason codes |
 | **Integrations** | `integrations` | 3 | Outbox, inbox, integration log |
 
 **Cross-module rule (MOD-1):** each module reads and writes only its own tables.
@@ -232,7 +232,7 @@ will not stop you writing a dangling id.
 
 ---
 
-## 4. MasterData — schema `master_data` (6 tables)
+## 4. MasterData — schema `master_data` (13 tables)
 
 **`Company`** — the legal entity the whole system runs for. Deliberately a
 **singleton**: a partial unique index on `IsActive` (filtered `WHERE IsActive = 1`)
@@ -276,10 +276,53 @@ PK `Id`. Key columns: `FromUnitId` (FK → `UnitOfMeasure.Id`, **Restrict**),
 `ToUnitId` (FK → `UnitOfMeasure.Id`, **Restrict**), `Factor` (decimal 18,4,
 check constraint `Factor > 0`), `CreatedAt`. Unique on (`FromUnitId`, `ToUnitId`).
 
-All five FKs in this module are **Restrict** (zero cascades) — the project's rule
+All seven FKs in this module are **Restrict** (zero cascades) — the project's rule
 is *deactivate, never delete* (PRD §6.1).
 
-### 4.1 MasterData ER diagram
+### 4.1 Partners (A1-3)
+
+**`Supplier`** — one row per supplier (`Code` unique, ≤30 chars; `Name` ≤200).
+PK `Id`. Other columns: `Status` (`Active`/`Inactive`/`Blocked` — stored as a
+string status code per DM-5, no approval behaviour in this table),
+`CreatedAt`, `UpdatedAt`, `RowVersion`.
+Relationships: parent of many `SupplierAddress`.
+
+**`Customer`** — one row per customer (`Code` unique, ≤30; `Name` ≤200).
+PK `Id`. Other columns: `Status` (`Active`/`Inactive`/`Blocked`/`OnHold`),
+`CreditLimit` (decimal 18,2, NOT NULL, **database default 0** = no credit —
+there is no "unlimited" value, TD-3 fails closed; check constraint
+`CK_Customer_CreditLimit_NonNegative` rejects negatives), timestamps,
+`RowVersion`. Relationship: parent of many `CustomerAddress`.
+
+**`SupplierAddress`** / **`CustomerAddress`** — postal addresses, one row each
+per partner (DM-9.2). PK `Id`. Columns: `SupplierId`/`CustomerId` (FK → partner,
+**Restrict**), `Line1`, `Line2` (nullable), `City`, `Region` (nullable),
+`PostalCode` (nullable), `Country`, `IsDefaultShipping`, `IsDefaultBilling`,
+timestamps, `RowVersion`. `Line1`, `City`, `Country` are required.
+**Filtered unique indexes** allow at most one default-shipping and one
+default-billing row per partner: `... (SupplierId, IsDefaultShipping)
+WHERE IsDefaultShipping = 1` and the billing/customer equivalents. Because
+each composite index starts with the FK column, EF creates no separate
+single-column index on `SupplierId` — the FK prefix is already covered.
+
+### 4.2 Shared master lookups (A1-3)
+
+**`TaxRate`** — a tax percentage the finance module will read (MD-031).
+PK `Id`. Columns: `Code` (unique), `Name`, `Rate` (decimal 9,6, stored as a
+percentage — FIN-CALC-10; check `CK_TaxRate_Rate_Between0And100` enforces
+0 ≤ Rate ≤ 100), `IsActive`, timestamps, `RowVersion`.
+
+**`PaymentTerm`** — when an invoice is due (MD-050, FIN-021).
+PK `Id`. Columns: `Code` (unique), `Name`, `DueDays` (int, required; check
+`CK_PaymentTerm_DueDays_NonNegative`), `IsActive`, timestamps, `RowVersion`.
+
+**`ReasonCode`** — one **global** list of reason codes used by stock
+adjustments and other documents (MD-050). PK `Id`. Columns: `Code` (unique),
+`Name`, `IsActive`, timestamps, `RowVersion`. Deliberately **no purpose
+column** — the owner approved one global list (A1-3 decision D9); a purpose
+column can be added later without breaking existing rows.
+
+### 4.3 MasterData ER diagram
 
 ```mermaid
 erDiagram
@@ -288,6 +331,8 @@ erDiagram
     UnitOfMeasure ||--o{ Product : "base unit of"
     UnitOfMeasure ||--o{ UnitOfMeasureConversion : "converts from"
     UnitOfMeasure ||--o{ UnitOfMeasureConversion : "converts to"
+    Supplier ||--o{ SupplierAddress : "has"
+    Customer ||--o{ CustomerAddress : "has"
 
     Company {
         guid Id PK
@@ -330,6 +375,57 @@ erDiagram
         guid FromUnitId FK
         guid ToUnitId FK
         decimal Factor
+    }
+    Supplier {
+        guid Id PK
+        string Code UK
+        string Name
+        string Status
+    }
+    SupplierAddress {
+        guid Id PK
+        guid SupplierId FK
+        string Line1
+        string City
+        string Country
+        bool IsDefaultShipping
+        bool IsDefaultBilling
+    }
+    Customer {
+        guid Id PK
+        string Code UK
+        string Name
+        string Status
+        decimal CreditLimit
+    }
+    CustomerAddress {
+        guid Id PK
+        guid CustomerId FK
+        string Line1
+        string City
+        string Country
+        bool IsDefaultShipping
+        bool IsDefaultBilling
+    }
+    TaxRate {
+        guid Id PK
+        string Code UK
+        string Name
+        decimal Rate
+        bool IsActive
+    }
+    PaymentTerm {
+        guid Id PK
+        string Code UK
+        string Name
+        int DueDays
+        bool IsActive
+    }
+    ReasonCode {
+        guid Id PK
+        string Code UK
+        string Name
+        bool IsActive
     }
 ```
 
@@ -527,6 +623,44 @@ the database does not check it.
 | `Factor` | `12.0000` *(1 BOX = 12 PCS)* | `0.0833` *(1 PCS = 0.0833 BOX)* |
 | `CreatedAt` | `2026-11-21T08:10:00+00:00` | `2026-11-21T08:10:00+00:00` |
 
+### 6.10 `master_data.Supplier` and `master_data.SupplierAddress` (1 row each)
+
+| Column | `Supplier` | `SupplierAddress` |
+|---|---|---|
+| `Id` (PK) | `3c000000-0000-4000-8000-000000000001` | `5e000000-0000-4000-8000-000000000001` |
+| `Code` (unique) | `SUP-1001` | — |
+| `Name` | `Acme Components` | — |
+| `SupplierId` (FK → `Supplier.Id`) | — | `3c000000-0000-4000-8000-000000000001` |
+| `Status` | `Active` | — |
+| `Line1` / `Line2` | — | `14 Industrial Way` / `Unit 3` |
+| `City` / `Region` / `PostalCode` / `Country` | — | `Amman` / `Amman` / `11118` / `Jordan` |
+| `IsDefaultShipping` / `IsDefaultBilling` | — | `1` / `1` |
+| `CreatedAt` / `UpdatedAt` | `2026-11-24T09:00:00+00:00` / `NULL` | `2026-11-24T09:01:00+00:00` / `NULL` |
+| `RowVersion` | `0x0000000000000550` (auto) | `0x0000000000000551` (auto) |
+
+A second default-shipping address for this supplier would be **rejected** by
+the filtered unique index; a second *non-default* address is fine.
+
+### 6.11 `master_data.Customer` (1 row)
+
+| Column | Row 1 |
+|---|---|
+| `Id` (PK) | `4d000000-0000-4000-8000-000000000001` |
+| `Code` (unique) | `CUS-2001` |
+| `Name` | `North Retail LLC` |
+| `Status` | `Active` |
+| `CreditLimit` | `5000.00` *(default `0` when omitted = no credit)* |
+| `CreatedAt` / `UpdatedAt` | `2026-11-24T09:05:00+00:00` / `NULL` |
+| `RowVersion` | `0x0000000000000560` (auto) |
+
+### 6.12 `master_data.TaxRate`, `master_data.PaymentTerm`, `master_data.ReasonCode` (1 row each)
+
+| Table | `Code` (unique) | `Name` | Value column | `IsActive` |
+|---|---|---|---|---|
+| `TaxRate` | `VAT16` | VAT 16% | `Rate = 16.000000` *(decimal 9,6, percent)* | `1` |
+| `PaymentTerm` | `NET30` | Net 30 | `DueDays = 30` | `1` |
+| `ReasonCode` | `STK-ADJ` | Stock adjustment | *(none — one global list, no purpose column)* | `1` |
+
 `Factor` must be `> 0` (check constraint `CK_UnitOfMeasureConversion_Factor_Positive`),
 and the pair (`FromUnitId`, `ToUnitId`) is unique.
 
@@ -591,7 +725,7 @@ atomic** against concurrent use — tracked in the HANDOFF known-gaps backlog.
 
 | Question | Answer |
 |---|---|
-| How many tables? | 23 — 14 `platform`, 6 `master_data`, 3 `integrations` |
+| How many tables? | 30 — 14 `platform`, 13 `master_data`, 3 `integrations` |
 | Do any FKs cross modules? | No (MOD-1). Cross-module ids are plain `Guid`s with no constraint. |
 | Which module posts stock movements? | Neither of these three — Inventory (A1) does, and has no tables yet. |
 | Where is the audit trail? | `platform.AuditLog` (user actions) and `integrations.IntegrationLog` (system/adapter activity) |

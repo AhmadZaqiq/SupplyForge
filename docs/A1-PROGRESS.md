@@ -39,8 +39,10 @@ average **scale 8** (WAC-09) ships. Only reversal *eligibility* waits on OD-03.
 | B4 | **DM-3: surrogate keys are BIGINT** (`09-data.md`, restated in ADR-005) | The A0 platform schema already shipped **Guid** surrogate keys in an applied migration, and branch scoping is typed against it | `UserBranchScope.BranchId` is `Guid` in `20261116221419_InitialPlatformCore`, commented *"Master Data owns Branch entity; A0 stores opaque id only"*; `BranchIsolationTests` (A0, committed) asserts `Guid` branch ids; `BranchIsolationTests`' own header says *"Master Data owns Branch entities later (A1)"* | (a) **Guid surrogate keys everywhere** (default in force). (b) bigint for new tables only, Guid for Branch. (c) convert everything to bigint. | (a) consistent with A0 and with `UserBranchScope`; deviates from DM-3 text. (b) two key styles coexist in one system. (c) requires altering **applied** platform tables and rewriting committed A0 tests — unavailable under this slice's boundary. |
 
 **Default (a) is implemented** in A1-1 (`Company.Id`, `Branch.Id` are `Guid`).
-Owner decision still wanted: record DM-3 as amended (new ADR/Decision Register
-entry) or schedule a later conversion. Do not silently switch key style mid-slice.
+**Owner accepted (a) on 2026-11-24** (A1-3 answer D2): the Decision Register
+carries it as **PA-18, a DM-3 amendment** — Guid surrogate keys are the project
+key style. B4 stays above as the record of the original conflict; no
+conversion is scheduled. Do not silently switch key style mid-slice.
 
 **Not blocked:** everything else in A1. Proceed below.
 
@@ -55,13 +57,18 @@ WAC → documents that post movements.
 |---|---|---|---|
 | A1-1 | **Master Data module foundation** — `SupplyForge.MasterData`, `.Contracts`, `.Infrastructure` per ADR-001; `master_data` schema; `Company` singleton + **3-branch seed**; ambient session generalised from 2 → N module contexts (ADR-003 extension, Host-only composition) | MD-001, MD-002, DM-1, A-2, A-4, ADR-001, ADR-003, MOD-1, MOD-5 | **Done 2026-11-20** (evidence §5) |
 | A1-2 | **Products + catalogue** — Product (RequiresInspection, reorder, lead time, default price, standard cost), category hierarchy, UoM + conversions, product statuses with no-archive-while-on-hand | MD-010, MD-011, MD-012, MD-013, DM-2, DM-5 | **Done 2026-11-22** (evidence §6) |
-| A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | Planned |
+| A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | **Done 2026-11-24** (evidence §7) |
 | A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1, BRN-001…010, `06a` §6.2 | Planned |
 | A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | Planned |
 | A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | Planned |
 | A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | Planned |
 | A1-8 | **Availability + replenishment + returns guard** — availability query with all buckets + incoming, reorder breach alert, Returns-location inbound guard | INV-100, INV-060, INV-061, INV-090, INV-091, `06a` §6.2 | Planned |
 | A1-9 | **Admin user lifecycle** — role/branch assignment, last-admin protection | MD-004, BRN-009, BRN-010, PLT-ROLE-3 | Planned |
+
+**MD-003 / MD-004 placement (Q7):** MD-004 is delivered in **A1-9** (row
+above). The PRD does not assign MD-003 (Employee directory) to any increment —
+**proposal awaiting the owner: deliver MD-003 in A1-9 too** (see §1b "Q7").
+Not implemented and not scheduled until the owner approves.
 
 **Deferred by owner decision:** B1 (approval engine / INV-041), B2 (logo / SEC-40),
 B3 (WAC-07 / OD-03).
@@ -94,6 +101,70 @@ the PRD fixes no permission codes for Master Data (`grep` finds no module matrix
 and PLT-022 requires an explicit `perm:*` policy on every endpoint — inventing
 codes would invent requirements. Endpoint work is scheduled as its own increment
 once the permission matrix exists.
+
+## 1b. A1-3 design decisions (approved by the owner before any A1-3 code)
+
+Read for this increment: `docs/prd/INDEX.md`, `00-how-to-use.md`, Core set
+(`03`, `04a`, `04b`, `04c`, `06a`, `02b`), slice files `05-01`, `05-02`, `06d`,
+`09`, plus `06c` (tax scale), `10`, `11`, `12`; greps only of `05-03/04/05/06`,
+`13`, `appendix-c`. Code read: `MasterDataDbContext`, `Product`,
+`UnitOfMeasure`, `ProductStatus`, `MasterDataSeed`, the A1-2 migration and
+tests. Library: `workflows/planning.md`. The STEP-1 plan was presented and the
+owner approved it on 2026-11-24 with the answers below.
+
+### Decisions, as approved (D1–D17)
+
+| # | Point | Decision |
+|---|---|---|
+| D1 | Contacts (`SupplierContact`/`CustomerContact` exist in DM-9.2 only) | **Out of scope** — no requirement ID covers them (owner answer Q4: deferred) |
+| D2 | Key style | **Guid** (owner accepted 2026-11-24 as the project key style; DM-3 amendment recorded in `docs/Decision Register.md` PA-18 — B4 above stays as the conflict note) |
+| D3 | Address shape | Two tables (`SupplierAddress`, `CustomerAddress`) per DM-9.2 |
+| D4 | Status values | Supplier: `Active`/`Inactive`/`Blocked`. Customer: `Active`/`Inactive`/`Blocked`/`OnHold` — smallest set carrying the PRD's own words |
+| D5 | Lookup vs partner status | `IsActive` bit on TaxRate/PaymentTerm/ReasonCode (A1-1/A1-2 lookup convention); `Status` string code on Supplier/Customer (DM-5) |
+| D6 | Address default flags | `IsDefaultShipping` + `IsDefaultBilling`, each with a unique filtered index (owner answer Q2: approved) |
+| D7 | Address columns | Line1/Line2/City/Region/PostalCode/Country; Line1+City+Country required; PostalCode nullable |
+| D8 | `CreditLimit` type | `decimal(18,2)`; NOT NULL with database default 0 (owner answer Q1: 0 = no credit, no unlimited value in P1, TD-3 fails closed) |
+| D9 | ReasonCode shape | One global list, unique `Code`; **a purpose column can be added later** (owner answer Q5: approved; noted, deliberately not built) |
+| D10 | `TaxRate.Rate` | `decimal(9,6)` stored as a percentage (FIN-CALC-10) |
+| D11 | `PaymentTerm.DueDays` | `int`, required (FIN-021) |
+| D12 | "price changes never mutate existing docs" | **Nothing to build in A1-3** — partner tables hold no prices; enforced later by frozen document snapshots (FIN-CALC-11/12, SAL-024, DM-4) |
+| D13 | "Blocked supplier/customer rules" | Store the status only; behaviour lands in A2 (supplier) / A3 (customer). Supplier-side Blocked rule does not exist in the PRD (owner answer Q3: park to A2; no approval logic now) |
+| D14 | HTTP endpoints | None — no Master Data permission codes exist (PLT-022 forbids inventing them), same scope call as A1-2 |
+| D15 | Seed rows | None (owner answer Q6: no seed rows; data, not schema) |
+| D16 | Migration handling | Migration **file** only; `dotnet ef database update` never run; tests on throwaway databases (§3 constraint 1) |
+| D17 | Delete behavior | Both FKs `DeleteBehavior.Restrict` (PLT-075, MD rules, A1-2 zero-cascade rule) |
+
+### Plan changes the owner required (all three implemented)
+
+1. **FK indexes — my STEP-1 statement was wrong.** The A1-2 migration does have
+   EF-convention FK indexes (`IX_Product_CategoryId`, `IX_Category_ParentId`,
+   `IX_Product_BaseUnitOfMeasureId`, `IX_UnitOfMeasureConversion_ToUnitId`).
+   The convention is **not suppressed** in A1-3: it produced the composite
+   default indexes `IX_SupplierAddress_SupplierId_IsDefaultShipping` /
+   `_IsDefaultBilling` and the customer equivalents — their **leftmost column
+   is the FK**, so SQL Server seeks them for parent lookups, which is why EF
+   creates no additional single-column index on the same column (the same rule
+   that produced `IX_UnitOfMeasureConversion_ToUnitId` but no `_FromUnitId` in
+   A1-2). Asserted in `MIGRATION_A1PartnersSharedMaster_…`.
+2. **Three CHECK constraints**, same rationale as A1-2's `Factor > 0` (bad
+   values silently corrupt data): `CK_Customer_CreditLimit_NonNegative`,
+   `CK_TaxRate_Rate_Between0And100`, `CK_PaymentTerm_DueDays_NonNegative` —
+   one schema test each.
+3. **Filtered-index test:** a second default-shipping address for the same
+   supplier must fail while non-default addresses pass (and the same for the
+   billing flag and the customer side).
+
+### Q7 — where MD-003 and MD-004 are delivered
+
+- **MD-004 (admin user lifecycle + role/branch assignment): A1-9.** Already
+  decided — its requirement IDs sit in that row of §1 (MD-004, BRN-009,
+  BRN-010, PLT-ROLE-3).
+- **MD-003 (Employee directory, optional user link): the PRD does not decide
+  an increment for it** — §11.2's A1 row does not enumerate increments, and no
+  other increment claims MD-003. **Proposal, waiting for the owner: deliver
+  MD-003 in A1-9** (an employee directory with an optional user link is the
+  same subject as users, roles and branch assignment; A-5 keeps it non-HR).
+  **Not implemented and not scheduled until the owner approves this placement.**
 
 ## 2. Acceptance gate mapping (PRD §11.2 A1 row)
 
@@ -290,3 +361,67 @@ migration + tests — no HTTP endpoint (permission matrix does not exist yet, se
 **Not done in A1-2 (by design):** HTTP endpoints (no Master Data permission
 codes exist — PLT-022 forbids inventing them); category-cycle logic (D-f, no
 caller yet); wiring `CanArchive` to real on-hand (D-d → A1-5).
+
+## 7. A1-3 evidence (completed 2026-11-24)
+
+Decisions were written first in §1b (D1–D17) and approved by the owner
+together with the STEP-1 plan; Q1–Q7 answers are folded into that table.
+Scope stayed data model + migration + tests — no HTTP endpoint (D14), no seed
+rows (D15).
+
+**Files created**
+
+| Path | Purpose |
+|---|---|
+| `src/Modules/MasterData/SupplyForge.MasterData/Domain/{Supplier,SupplierStatus,Customer,CustomerStatus}.cs` | MD-020/MD-030 partner entities + status-code rules (DM-5) |
+| `.../Domain/{SupplierAddress,CustomerAddress}.cs` | DM-9.2 addresses with the two default flags (D6) |
+| `.../Domain/{TaxRate,PaymentTerm,ReasonCode}.cs` | shared master lookups (MD-031, MD-050, FIN-021) |
+| `.../Infrastructure/Data/MasterDataDbContext.cs` (extended) | 7 new DbSets; 3 CHECKs; 4 filtered unique indexes; Restrict FKs; `CreditLimit` precision(18,2) default 0; `Rate` precision(9,6) |
+| `.../Data/Migrations/20261124011532_A1PartnersSharedMaster.cs` (+`.Designer.cs`, snapshot) | Up: 7 tables + indexes + checks; Down drops exactly those 7 |
+| `tests/MasterData.UnitTests/PartnerStatusTests.cs` | 11 status-rule tests, no DB needed |
+| `tests/MasterData.IntegrationTests/PartnersAndSharedMasterTests.cs` | 17 tests, all on throwaway databases |
+
+**Files changed:** `tests/MasterData.IntegrationTests/ProductCatalogueTests.cs`
+(A1-2 migration test de-coupled by name — see below).
+
+**Tests added (NFR-051 — requirement ID in every name)**
+
+| Test group | Requirement |
+|---|---|
+| 11 unit tests: supplier/customer status-code sets, defaults, transitions | MD-020, MD-030, DM-5 |
+| `MD_020_Supplier_PersistsEveryRequiredField` / `MD_030_Customer_…` | MD-020, MD-030, DM-9.1 |
+| `MD_020_SupplierCode_IsUnique` / `MD_030_CustomerCode_IsUnique` | MD-020, MD-030 |
+| Address persistence + `MD_020_…_IsDefaultShipping` / `IsDefaultBilling` unique-filtered tests (2 defaults fail, 2 non-defaults pass) | DM-9.2, D6, owner plan change 3 |
+| `MD_031_TaxRate_…`, `MD_031_TaxRate_Rate_IsBetween0And100_InTheDatabase` (CHECK) | MD-031, D10, owner plan change 2 |
+| `MD_050_PaymentTerm_…`, `MD_050_PaymentTerm_DueDays_NonNegative_InTheDatabase` (CHECK) | MD-050, D11, owner plan change 2 |
+| `MD_030_Customer_CreditLimit_DefaultsToZero_AndRejectsNegative` (CHECK) | MD-030, D8, owner plan change 2, TD-3 |
+| `MD_050_ReasonCode_…` global list, unique `Code` | MD-050, D9 |
+| `MIGRATION_A1PartnersSharedMaster_UpCreatesSevenTablesAndGuards_DownReversesExactly` | migration boundary (13 tables up → 6 down; FK-index rule asserted) |
+
+**Decisions taken inside A1-3 (ordinary, within PRD/ADR scope)**
+
+1. **A1-2's migration test was de-coupled from later increments.** Its
+   assertion changed from "total = 6 tables" to A1-2's own six tables **by
+   name** — the same fix A1-2 applied to A1-1. The schema total (13) is now
+   owned by A1-3's migration test. Nothing was removed; all six tables must
+   still exist.
+2. **No single-column `IX_SupplierAddress_SupplierId` is emitted, and none is
+   suppressed.** EF's convention produced the composite default indexes whose
+   **leftmost column is the FK** (`(SupplierId, IsDefaultShipping)`), so SQL
+   Server can seek them for parent lookups; the convention therefore creates
+   no second index on the same column — the same rule that gives A1-2
+   `IX_UnitOfMeasureConversion_ToUnitId` but no `_FromUnitId`. Asserted in the
+   migration test.
+
+**Verification run (2026-11-24)**
+
+- `dotnet build` → 0 errors, 0 warnings.
+- `dotnet test` → **230/230**: architecture 17, PlatformCore unit 68,
+  **MasterData unit 17** (6 + 11), PlatformCore integration 92,
+  **MasterData integration 36** (19 + 17) — two consecutive full green runs
+  (`/tmp/test-run-a1-3-1.txt`, `/tmp/test-run-a1-3-2.txt`).
+- `dotnet format --verify-no-changes` → exit 0.
+
+**Not done in A1-3 (by design):** HTTP endpoints (D14); seed rows (D15);
+supplier/customer approval or Blocked *behaviour* (D13 → A2/A3); contacts
+(D1 → deferred); a `Purpose` column on `ReasonCode` (D9 → may be added later).

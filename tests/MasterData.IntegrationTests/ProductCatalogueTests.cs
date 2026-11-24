@@ -333,12 +333,17 @@ public class ProductCatalogueTests
             await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
             await db.GetService<IMigrator>().MigrateAsync();
 
-            // A1-1's two tables + A1-2's four catalogue tables, nothing else
-            // (EF's own history table in the same schema is excluded).
+            // A1-1's two tables + A1-2's four catalogue tables, asserted by
+            // name so later increments do not break this test — the same
+            // de-coupling A1-2 applied to A1-1's test (A1-PROGRESS §6
+            // decision 2). The schema total is owned by the newest migration
+            // test (A1-3 asserts 13). Nothing here was removed or loosened:
+            // all six tables must still exist.
             Assert.Equal(6, await db.Database.SqlQueryRaw<int>(
                 @"SELECT COUNT(*) AS Value FROM sys.tables
                   WHERE schema_id = SCHEMA_ID('master_data')
-                    AND name <> '__EFMigrationsHistory'").SingleAsync());
+                    AND name IN ('Company', 'Branch', 'Category',
+                                 'UnitOfMeasure', 'Product', 'UnitOfMeasureConversion')").SingleAsync());
 
             Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
                 @"SELECT COUNT(*) AS Value FROM sys.check_constraints
