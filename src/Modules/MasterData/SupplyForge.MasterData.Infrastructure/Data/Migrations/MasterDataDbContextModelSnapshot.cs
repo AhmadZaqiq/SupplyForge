@@ -448,6 +448,62 @@ namespace SupplyForge.MasterData.Infrastructure.Migrations
                     b.ToTable("ReasonCode", "master_data");
                 });
 
+            modelBuilder.Entity("SupplyForge.MasterData.Domain.StorageLocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsBlocked")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Type");
+
+                    b.HasIndex("WarehouseId", "Code")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.ToTable("StorageLocation", "master_data", t =>
+                        {
+                            t.HasCheckConstraint("CK_StorageLocation_Type_Valid", "[Type] IN ('Receiving','Quarantine','Storage','Returns','Staging')");
+                        });
+                });
+
             modelBuilder.Entity("SupplyForge.MasterData.Domain.Supplier", b =>
                 {
                     b.Property<Guid>("Id")
@@ -673,6 +729,50 @@ namespace SupplyForge.MasterData.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SupplyForge.MasterData.Domain.Warehouse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Warehouse", "master_data");
+                });
+
             modelBuilder.Entity("SupplyForge.MasterData.Domain.Category", b =>
                 {
                     b.HasOne("SupplyForge.MasterData.Domain.Category", "Parent")
@@ -712,6 +812,17 @@ namespace SupplyForge.MasterData.Infrastructure.Migrations
                     b.Navigation("Category");
                 });
 
+            modelBuilder.Entity("SupplyForge.MasterData.Domain.StorageLocation", b =>
+                {
+                    b.HasOne("SupplyForge.MasterData.Domain.Warehouse", "Warehouse")
+                        .WithMany("Locations")
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Warehouse");
+                });
+
             modelBuilder.Entity("SupplyForge.MasterData.Domain.SupplierAddress", b =>
                 {
                     b.HasOne("SupplyForge.MasterData.Domain.Supplier", "Supplier")
@@ -742,9 +853,25 @@ namespace SupplyForge.MasterData.Infrastructure.Migrations
                     b.Navigation("ToUnit");
                 });
 
+            modelBuilder.Entity("SupplyForge.MasterData.Domain.Warehouse", b =>
+                {
+                    b.HasOne("SupplyForge.MasterData.Domain.Branch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
+                });
+
             modelBuilder.Entity("SupplyForge.MasterData.Domain.Category", b =>
                 {
                     b.Navigation("Children");
+                });
+
+            modelBuilder.Entity("SupplyForge.MasterData.Domain.Warehouse", b =>
+                {
+                    b.Navigation("Locations");
                 });
 #pragma warning restore 612, 618
         }

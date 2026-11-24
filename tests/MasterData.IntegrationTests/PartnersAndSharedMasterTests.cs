@@ -552,14 +552,15 @@ public class PartnersAndSharedMasterTests
             await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
             await db.GetService<IMigrator>().MigrateAsync();
 
-            // A1-1's two + A1-2's four + A1-3's seven = 13, nothing else
-            // (EF's own history table in the same schema is excluded). This
-            // newest migration test owns the schema total; A1-1's and A1-2's
-            // tests assert their own tables by name.
-            Assert.Equal(13, await db.Database.SqlQueryRaw<int>(
+            // A1-3's own seven tables, by name. The schema total is owned by
+            // the newest migration test (A1-4 asserts 15); this test was
+            // de-coupled from later increments the same way A1-2 de-coupled
+            // A1-1 and A1-3 de-coupled A1-2. Nothing was removed.
+            Assert.Equal(7, await db.Database.SqlQueryRaw<int>(
                 @"SELECT COUNT(*) AS Value FROM sys.tables
                   WHERE schema_id = SCHEMA_ID('master_data')
-                    AND name <> '__EFMigrationsHistory'").SingleAsync());
+                    AND name IN ('Supplier','Customer','SupplierAddress',
+                                 'CustomerAddress','TaxRate','PaymentTerm','ReasonCode')").SingleAsync());
 
             // The three CHECK constraints added by this increment.
             Assert.Equal(3, await db.Database.SqlQueryRaw<int>(

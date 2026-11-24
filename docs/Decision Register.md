@@ -96,7 +96,7 @@
 | ~~ADR-004 topic confirmation~~ | **Done — Identity** |
 | ADR-007, 011, 013, 014, 015, 016 | Later slices / money |
 | Env: SQL Server 2022 via Compose approved; migrations on **local Docker DB only** allowed | M0-2 / M0-3 |
-| Baseline git commit | **Not approved** — do not commit |
+| ~~Baseline git commit~~ | **Resolved 2026-11-18** — commit/push allowed only per explicit owner approval (aligns with HANDOFF and AGENTS) |
 
 ---
 
@@ -107,3 +107,37 @@
 | 2026-11-16 | Register created; ADR-001…006, 008, 009 drafted as Proposed pending PO review |
 | 2026-11-16 | PO accepted ADR-001…006, 008, 009 + defaults; ADR-004 topic = Identity; `X-Api-Key` frozen; M0-0…M0-5 approved; local-only EF migrations approved; no baseline commit |
 | 2026-11-24 | **PA-18 added:** owner accepted Guid surrogate keys as the project key style — DM-3 amendment (A1-3 answer D2). A1-3 design decisions D1–D17 and Q1–Q7 recorded in `docs/A1-PROGRESS.md` §1b |
+
+---
+
+## 8. A1-4 owner decisions (2026-11-24)
+
+### Accepted
+
+| ID | Decision |
+|---|---|
+| Q-A | `Warehouse.Code` unique company-wide, **non-filtered**. |
+| Q-B | Entity/table name **`StorageLocation`** (DM-9.2). |
+| Q-C | `IsCompanyWide` on `platform.User` in **Part 2**, migration **file only**. BRN-010: "Users assigned one+ branches or company-wide scope flag." |
+| Q-D | `ICurrentBranchScope` = `BranchIds` + `IsCompanyWide` + `CanAccess(Guid)`. |
+| D1 | **One** branch-scoping mechanism; every future stock table carries `WarehouseId` directly. |
+| D2 | MasterData owns `ILocationDeactivationGuard` in `MasterData.Contracts`; Inventory implements it in **A1-5**; A1-4 ships a public placeholder that allows everything. |
+| D3 | `CreatedAt`/`UpdatedAt` are `datetimeoffset`, set from `TimeProvider`, **no SQL default**. |
+| D4 | **No delete operation**; `Restrict` only blocks deleting a parent with children; cross-module references are plain `Guid` with **no FK** (DM-4). |
+| D5 | `Warehouse.Code` unique company-wide, non-filtered. |
+| D6 | Branch scope must **not** use `AmbientDbSession`; `ICurrentBranchScope` on the Platform Core side; EF global filter reads a **DbContext property**; out-of-scope create rejected; company-wide sees all; a user with no branches sees nothing. **Part 2 only.** |
+| — | **Removed** `CK_StorageLocation_IsBlocked_Implies_Inactive`: not PRD-required; a blocked Storage location can stay active. |
+
+### Open
+
+| ID | Requirement |
+|---|---|
+| Q-E | Null branch scope must **fail closed for normal requests**; **seed and migration operations must retain the required system-level data access**. No resolution chosen. |
+
+## 9. Workflow authority
+
+- Owner decisions recorded here override agent assumptions and old plans.
+- A superseded plan must be marked `SUPERSEDED` with a link to its replacement.
+- No commit, push, or migration application without separate explicit owner approval.
+- If HANDOFF, Git, actual source, or this register disagree, stop and report; never resolve with assumptions.
+- If the previous agent's inactivity cannot be verified, do not write until the owner confirms the handoff.

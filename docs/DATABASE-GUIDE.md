@@ -9,7 +9,7 @@ cross-checked against the entity classes. This guide is **descriptive of the
 current schema, not a requirements source** — it goes stale the moment a
 migration changes the model, so re-read the snapshot when that happens.
 
-**Scope:** 3 modules, 3 schemas, **30 tables**, all in one SQL Server database
+**Scope:** 3 modules, 3 schemas, **32 tables**, all in one SQL Server database
 (`SupplyForge`). Nothing outside these three modules owns tables yet.
 
 ---
@@ -43,7 +43,7 @@ Every term below is defined here once and reused afterwards.
 | Module | Schema | Tables | Owns |
 |---|---|---|---|
 | **PlatformCore** | `platform` | 14 | Identity (users/roles/permissions), tokens, API keys, audit trail, notifications, sequences, idempotency, job runs |
-| **MasterData** | `master_data` | 13 | Company, branches, product catalogue, partners (supplier/customer + addresses), tax rates, payment terms, reason codes |
+| **MasterData** | `master_data` | 15 | Company, branches, product catalogue, partners (supplier/customer + addresses), tax rates, payment terms, reason codes, **warehouses, storage locations** |
 | **Integrations** | `integrations` | 3 | Outbox, inbox, integration log |
 
 **Cross-module rule (MOD-1):** each module reads and writes only its own tables.
@@ -232,7 +232,9 @@ will not stop you writing a dangling id.
 
 ---
 
-## 4. MasterData — schema `master_data` (13 tables)
+## 4. MasterData — schema `master_data` (15 tables)
+
+**Note:** The A1-4 migration `20261124181017_A1WarehousesLocations` (creating `Warehouse` and `StorageLocation`) exists as a file but has **not been applied** to any database. The tables described below include these two new tables.
 
 **`Company`** — the legal entity the whole system runs for. Deliberately a
 **singleton**: a partial unique index on `IsActive` (filtered `WHERE IsActive = 1`)
@@ -322,7 +324,24 @@ adjustments and other documents (MD-050). PK `Id`. Columns: `Code` (unique),
 column** — the owner approved one global list (A1-3 decision D9); a purpose
 column can be added later without breaking existing rows.
 
-### 4.3 MasterData ER diagram
+### 4.3 Warehouses and Storage Locations (A1-4 Part 1, uncommitted)
+
+**`Warehouse`** — one row per physical warehouse; branch-owned (MD-040).
+PK `Id`. Key columns: `Code` (unique, ≤30 chars, **company-wide non-filtered** — Q-A),
+`Name`, `BranchId` (FK → `Branch.Id`, **Restrict**), `IsActive`, `CreatedAt`,
+`UpdatedAt`, `RowVersion`. A deactivated warehouse keeps its code reserved.
+Relationships: parent of many `StorageLocation` (FK → `Warehouse.Id`).
+
+**`StorageLocation`** — one row per location inside a warehouse (MD-041, MD-042).
+PK `Id`. Key columns: `Code` (unique per warehouse), `Name`, `WarehouseId`
+(FK → `Warehouse.Id`, **Restrict**), `LocationType` (enum: `Receiving`,
+`Storage`, `Picking`, `Shipping`, `Returns`, `Quarantine`, `Blocked` — CHECK
+constraint), `IsActive`, `CreatedAt`, `UpdatedAt`, `RowVersion`.
+Relationships: child of `Warehouse`. A blocked location (`LocationType =
+Blocked`) can still hold stock and stays active (no `IsBlocked ⇒ Inactive`
+constraint — removed as not PRD-required).
+
+### 4.4 MasterData ER diagram
 
 ```mermaid
 erDiagram
@@ -333,6 +352,8 @@ erDiagram
     UnitOfMeasure ||--o{ UnitOfMeasureConversion : "converts to"
     Supplier ||--o{ SupplierAddress : "has"
     Customer ||--o{ CustomerAddress : "has"
+    Warehouse ||--o{ StorageLocation : "contains"
+    Branch ||--o{ Warehouse : "owns"
 
     Company {
         guid Id PK
@@ -425,6 +446,21 @@ erDiagram
         guid Id PK
         string Code UK
         string Name
+        bool IsActive
+    }
+    Warehouse {
+        guid Id PK
+        string Code UK
+        string Name
+        guid BranchId FK
+        bool IsActive
+    }
+    StorageLocation {
+        guid Id PK
+        string Code UK
+        string Name
+        guid WarehouseId FK
+        string LocationType
         bool IsActive
     }
 ```
@@ -725,7 +761,7 @@ atomic** against concurrent use — tracked in the HANDOFF known-gaps backlog.
 
 | Question | Answer |
 |---|---|
-| How many tables? | 30 — 14 `platform`, 13 `master_data`, 3 `integrations` |
+| How many tables? | 32 — 14 `platform`, 15 `master_data`, 3 `integrations` |
 | Do any FKs cross modules? | No (MOD-1). Cross-module ids are plain `Guid`s with no constraint. |
 | Which module posts stock movements? | Neither of these three — Inventory (A1) does, and has no tables yet. |
 | Where is the audit trail? | `platform.AuditLog` (user actions) and `integrations.IntegrationLog` (system/adapter activity) |

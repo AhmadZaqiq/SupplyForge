@@ -3,6 +3,25 @@
 ## What this project is
 Modular-monolith backend for the full goods lifecycle: supplier → purchase → receipt → stock → sale → shipment → invoice → payment → report. One company, three seeded branches. Portfolio backend, not a certified ERP.
 
+## Shared workflow (OpenCode + Kilo)
+- **One writer at a time.** The owner sets `Active agent:` in `docs/HANDOFF.md` §2. If it names another agent, stop.
+- **No concurrent writes.** If the previous agent's inactivity cannot be verified (no handoff, stale handoff, or another agent may still be active), do not write. Wait for the owner to confirm the handoff.
+- **Start of every session:** read `docs/HANDOFF.md` §2 "Current handoff", `docs/A1-PROGRESS.md`, `docs/Decision Register.md`; run `git status` and `git log --oneline -3`; verify the handoff against the repo.
+- **Conflict rule:** if HANDOFF, Git, actual source, or the Decision Register disagree, stop and report the discrepancy. Never resolve it with assumptions.
+- **Before stopping or switching:** refresh the full handoff record (files, decisions, build/test/format, migration status, git status, last commit), `docs/A1-PROGRESS.md`, and `docs/Decision Register.md`; set `Active agent: none`.
+- **Owner decisions win.** `docs/Decision Register.md` overrides agent assumptions and old plans. Mark a superseded plan `SUPERSEDED` and link its replacement.
+- **No commit, push, or migration apply** without separate explicit owner approval. Never redo verified work without checking the handoff and the repo first.
+
+## Source authority (highest to lowest)
+1. Latest explicit owner decisions — `docs/Decision Register.md` §8/§9 and owner instructions.
+2. Accepted ADRs — `ADR/ADR-001…006, 008, 009`; govern architecture unless superseded.
+3. PRD — `docs/prd/` (start `INDEX.md`, `00-how-to-use.md`); governs product requirements.
+4. `docs/HANDOFF.md` — current operational state and exact next action.
+5. `docs/A1-PROGRESS.md` — increment progress and verification evidence.
+6. `docs/DATABASE-GUIDE.md` — verified database structure.
+7. `README.md` — project overview and developer runbook.
+8. Plans (`.kilo/plans/*`) are **never authoritative**.
+
 ## Stack
 C#, .NET 10, ASP.NET Core Web API, SQL Server, EF Core 10, Docker Compose, xUnit with real SQL Server integration tests, OpenAPI, CI.
 Not by default: microservices, Redis, RabbitMQ, MediatR, CQRS frameworks (PRD MOD-8; adding one needs an ADR).

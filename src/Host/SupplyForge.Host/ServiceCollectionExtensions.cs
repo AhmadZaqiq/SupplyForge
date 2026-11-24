@@ -159,6 +159,11 @@ public static class ServiceCollectionExtensions
         // MD-002), next to the platform catalogue seed in Program.cs.
         services.AddScoped<SupplyForge.MasterData.Infrastructure.Data.MasterDataSeed>();
 
+        // A1-4: location deactivation guard port (MD-042).
+        // Placeholder implementation; Inventory provides real guard in A1-5.
+        services.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard,
+            SupplyForge.MasterData.Infrastructure.Location.DefaultLocationDeactivationGuard>();
+
         // ADR-003 (A0-6, extended by A1-1): the ambient session joins every
         // module DbContext on one shared connection/transaction. Host owns the
         // implementation and the enlistment list because it is the only

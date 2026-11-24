@@ -6,12 +6,11 @@ namespace SupplyForge.MasterData.Infrastructure.Data;
 /// <summary>
 /// Master Data module DbContext (ADR-001, ADR-003). Owns the
 /// <c>master_data</c> schema: company singleton, branches, the product
-/// catalogue (product, category hierarchy, UoM + conversions), and the
-/// partners + shared master of A1-3 (supplier, customer, addresses, tax
-/// rates, payment terms, reason codes); the warehouse/location catalogue
-/// arrives in a later A1 increment. No other module may read or write these
-/// tables (MOD-1) — cross-module access goes through this module's public
-/// contracts.
+/// catalogue (product, category hierarchy, UoM + conversions), the partners
+/// + shared master (supplier, customer, addresses, tax rates, payment terms,
+/// reason codes), and the warehouse/location catalogue (A1-4). No other
+/// module may read or write these tables (MOD-1) — cross-module access goes
+/// through this module's public contracts.
 /// </summary>
 public class MasterDataDbContext : DbContext
 {
@@ -35,6 +34,10 @@ public class MasterDataDbContext : DbContext
     public DbSet<TaxRate> TaxRates => Set<TaxRate>();
     public DbSet<PaymentTerm> PaymentTerms => Set<PaymentTerm>();
     public DbSet<ReasonCode> ReasonCodes => Set<ReasonCode>();
+
+    // A1-4 — MD-040, MD-041, MD-042
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<StorageLocation> StorageLocations => Set<StorageLocation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -244,6 +247,49 @@ public class MasterDataDbContext : DbContext
             // One global list (decision D9): the unique code is the handle
             // every consumer (INV-040, INB-037, …) references.
             e.HasIndex(x => x.Code).IsUnique();
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        // A1-4 — MD-040, MD-041, MD-042 (decisions recorded in A1-PROGRESS §1c).
+        // Warehouse: branch-owned, Code unique company-wide (owner decision 5).
+        // StorageLocation: branch-owned transitively via Warehouse.BranchId.
+        // Both: deactivate not delete (IsActive), RowVersion for optimistic concurrency (DM-7).
+        // FKs: Restrict — referenced records deactivate, never hard-deleted (PLT-075, MD rules).
+        // No global query filters here; added in PART 2 via ICurrentBranchScope.
+
+        modelBuilder.Entity<Warehouse>(e =>
+        {
+            e.ToTable("Warehouse");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            // Warehouse.Code is unique company-wide (owner decision 5), not per branch.
+            // Non-filtered, matching the A1-3 Code convention: a deactivated warehouse
+            // keeps its code reserved (no reuse).
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasOne(x => x.Branch).WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        modelBuilder.Entity<StorageLocation>(e =>
+        {
+            e.ToTable("StorageLocation", t =>
+            {
+                // D-16: only these five types are valid.
+                t.HasCheckConstraint("CK_StorageLocation_Type_Valid",
+                    "[Type] IN ('Receiving','Quarantine','Storage','Returns','Staging')");
+                // MD-042: no "blocked implies inactive" constraint. The PRD only says
+                // "Block location; no deactivate while holding stock"; a blocked Storage
+                // location can still hold stock and stays active (owner, 2026-11-24).
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Type).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            // Location.Code unique per warehouse, filtered so a deactivated code is reusable.
+            e.HasIndex(x => new { x.WarehouseId, x.Code }).IsUnique().HasFilter("[IsActive] = 1");
+            e.HasIndex(x => x.Type); // For eligibility queries (§6.2)
+            e.HasOne(x => x.Warehouse).WithMany(x => x.Locations).HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.RowVersion).IsRowVersion();
         });
     }
