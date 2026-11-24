@@ -19,7 +19,7 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 ### Current handoff (refresh at every handoff; read before any edit)
 - Last refreshed: 2026-11-24T19:29:42Z
 - Active agent: none
-- Last commit: 93b28c0 (A1-4 Part 1: Warehouses + Storage Locations)
+- Last commit: e67007c (docs sync). A1-4 Part 1 code is 93b28c0. Next: docs fix for A1-4 Part 1 status, location types, StorageLocation comment.
 - Git status: 6 untracked (.kilo/plans/), 0 modified, 0 staged (refreshed at handoff)
 - Uncommitted scope: A1-4 Part 1 committed; only .kilo/plans/ untracked
 - Changed/new/deleted files: A1-4 Part 1 committed (93b28c0); .kilo/plans/ untracked (6 plan files)

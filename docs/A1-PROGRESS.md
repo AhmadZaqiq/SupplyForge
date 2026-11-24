@@ -3,7 +3,7 @@
 Slice: **A1 Master + Inventory core** (PRD §11.2). Created: 2026-11-20.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
-**Active agent:** none · **Last handoff:** 2026-11-24T19:29:42Z (A1-4 Part 1 done, uncommitted; docs sync)
+**Active agent:** none · **Last handoff:** 2026-11-24T19:29:42Z (A1-4 Part 1 committed 93b28c0; docs sync)
 
 **Files read before planning:** `AGENTS.md` (root), `HANDOFF.md`,
 `docs/prd/INDEX.md`, `docs/prd/00-how-to-use.md`, `03-constraints-assumptions-defaults.md`,
@@ -59,7 +59,7 @@ WAC → documents that post movements.
 | A1-1 | **Master Data module foundation** — `SupplyForge.MasterData`, `.Contracts`, `.Infrastructure` per ADR-001; `master_data` schema; `Company` singleton + **3-branch seed**; ambient session generalised from 2 → N module contexts (ADR-003 extension, Host-only composition) | MD-001, MD-002, DM-1, A-2, A-4, ADR-001, ADR-003, MOD-1, MOD-5 | **Done 2026-11-20** (evidence §5) |
 | A1-2 | **Products + catalogue** — Product (RequiresInspection, reorder, lead time, default price, standard cost), category hierarchy, UoM + conversions, product statuses with no-archive-while-on-hand | MD-010, MD-011, MD-012, MD-013, DM-2, DM-5 | **Done 2026-11-22** (evidence §6) |
 | A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | **Done 2026-11-24** (evidence §7) |
-| A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1, BRN-001…010, `06a` §6.2 | **Part 1 done 2026-11-24 (uncommitted); Part 2 pending Q-E** |
+| A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1 | **Part 1 committed 2026-11-24 (93b28c0); Part 2 pending Q-E** |
 | A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | Planned |
 | A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | Planned |
 | A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | Planned |
@@ -472,26 +472,26 @@ supplier/customer approval or Blocked *behaviour* (D13 → A2/A3); contacts
 
 ---
 
-## 8. A1-4 Part 1 evidence (2026-11-24, uncommitted)
+## 8. A1-4 Part 1 evidence (2026-11-24, committed 93b28c0)
 
 **Files created**
 
 | Path | Purpose |
 |---|---|
 | `src/Modules/MasterData/SupplyForge.MasterData/Domain/Warehouse.cs` | MD-040 branch-owned warehouse entity |
-| `src/Modules/MasterData/SupplyForge.MasterData/Domain/StorageLocation.cs` | MD-041/042 location entity with `LocationType` |
-| `src/Modules/MasterData/SupplyForge.MasterData/Domain/LocationType.cs` | MD-041 enum: `Receiving`, `Storage`, `Picking`, `Shipping`, `Returns`, `Quarantine`, `Blocked` |
+| `src/Modules/MasterData/SupplyForge.MasterData/Domain/StorageLocation.cs` | MD-041/042 location entity with `Type` (string) |
+| `src/Modules/MasterData/SupplyForge.MasterData/Domain/LocationType.cs` | MD-041 static class with 5 string constants: `Receiving`, `Quarantine`, `Storage`, `Returns`, `Staging` (D-16); `Blocked` is a separate `IsBlocked` flag (MD-042) |
 | `src/Modules/MasterData/SupplyForge.MasterData.Contracts/Location/ILocationDeactivationGuard.cs` | Port for Inventory to implement in A1-5 (D2) |
 | `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/Location/DefaultLocationDeactivationGuard.cs` | Public placeholder — allows all deactivations (D2) |
-| `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/Data/Migrations/20261124181017_A1WarehousesLocations.cs` | Creates `master_data.Warehouse` + `master_data.StorageLocation`; `Warehouse.Code` unique non-filtered (D5); `LocationType` CHECK constraint; FKs `Restrict` (D4) |
-| `tests/MasterData.UnitTests/StorageLocationTests.cs` | 7 unit tests: type values, blocked≠inactive, enum round-trip |
-| `tests/MasterData.IntegrationTests/WarehouseLocationTests.cs` | 12 integration tests on throwaway DBs: persistence, unique code, FK restrict, CHECK, port injection |
+| `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/Data/Migrations/20261124181017_A1WarehousesLocations.cs` | Creates `master_data.Warehouse` + `master_data.StorageLocation`; `Warehouse.Code` unique non-filtered (D5); `Type` CHECK constraint (5 values per D-16); FKs `Restrict` (D4) |
+| `tests/MasterData.UnitTests/StorageLocationTests.cs` | 7 unit tests: type values, five-type set, blocked-but-active is legal |
+| `tests/MasterData.IntegrationTests/WarehouseLocationTests.cs` | 12 integration tests on throwaway DBs: persistence, unique code, FK restrict, CHECK, placeholder guard |
 
 **Files changed**
 
 | Path | Change |
 |---|---|
-| `src/Modules/MasterData/.../MasterDataDbContext.cs` | +2 DbSets; `Warehouse.Code` unique index (non-filtered); `StorageLocation.LocationType` CHECK; `Warehouse.BranchId` FK Restrict; `StorageLocation.WarehouseId` FK Restrict |
+| `src/Modules/MasterData/.../MasterDataDbContext.cs` | +2 DbSets; `Warehouse.Code` unique index (non-filtered); `StorageLocation.Type` CHECK; `Warehouse.BranchId` FK Restrict; `StorageLocation.WarehouseId` FK Restrict |
 | `.../Migrations/MasterDataDbContextModelSnapshot.cs` | Updated to include Warehouse + StorageLocation |
 | `src/Host/SupplyForge.Host/ServiceCollectionExtensions.cs` | Registers `DefaultLocationDeactivationGuard` as `ILocationDeactivationGuard` |
 | `tests/MasterData.IntegrationTests/PartnersAndSharedMasterTests.cs` | A1-3 migration test de-coupled by table name (own 13 tables) |
@@ -511,16 +511,16 @@ supplier/customer approval or Blocked *behaviour* (D13 → A2/A3); contacts
 - D6: Branch scope via `ICurrentBranchScope` + DbContext property (not `AmbientDbSession`); Part 2 only
 - Removed: `CK_StorageLocation_IsBlocked_Implies_Inactive` (not PRD-required)
 
-**Verification (owner-reported, not re-run by this agent)**
+**Verification (A1-4 Part 1)**
 
 - `dotnet build` → 0 errors, 0 warnings
 - `dotnet test` → **249/249** (architecture 17, PlatformCore unit 68, MasterData unit 24, PlatformCore integration 92, MasterData integration 48), **two consecutive runs**
 - `dotnet format --verify-no-changes` → exit 0
 - Migration file `20261124181017_A1WarehousesLocations` created; **NOT applied** (owner approval required)
-- **No commit, no push** — owner review pending
+- **Committed and pushed** — `93b28c0` (A1-4 Part 1), `e67007c` (docs sync)
 
 ## Handoff log
 
 | Date | Agent | Increment | Files (changed/new/deleted) | Decisions | Build / Test / Format | Migration | Git status | Commit/push |
 |---|---|---|---|---|---|---|---|---|
-| 2026-11-24 | OpenCode + Kilo (multiple agents) | A1-4 Part 1 | new: Warehouse, StorageLocation, LocationType, port, guard, migration, 2 tests; mod: DbContext, snapshot, Host DI, A1-3 migration test, A1-PROGRESS, 2 HANDOFFs; del: none | Q-A…Q-D accepted; Q-E open; blocked⇒inactive removed | 0/0 · 249/249 ×2 (owner-reported) · clean | created, not applied | 11 mod, 11 untracked, 0 staged (at handoff) | none — owner review pending |
+| 2026-11-24 | OpenCode + Kilo (multiple agents) | A1-4 Part 1 | new: Warehouse, StorageLocation, LocationType, port, guard, migration, 2 tests; mod: DbContext, snapshot, Host DI, A1-3 migration test, A1-PROGRESS, 2 HANDOFFs; del: none | Q-A…Q-D accepted; Q-E open; blocked⇒inactive removed | 0/0 · 249/249 ×2 (owner-reported) · clean | created, not applied | 11 mod, 11 untracked, 0 staged (at handoff) | **committed 93b28c0; pushed e67007c** |

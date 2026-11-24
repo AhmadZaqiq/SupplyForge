@@ -23,7 +23,7 @@ public class StorageLocation
     /// <summary>Block location flag (MD-042). Blocked locations are excluded from eligible available stock.</summary>
     public bool IsBlocked { get; set; } = false;
 
-    /// <summary>Active flag — deactivate not delete (MD rules). A blocked location must be inactive.</summary>
+    /// <summary>Active flag — deactivate not delete (MD rules). A blocked location can stay active; only deactivation is guarded by ILocationDeactivationGuard.</summary>
     public bool IsActive { get; set; } = true;
 
     /// <summary>Set from the application clock (TimeProvider), no SQL default.</summary>

@@ -324,7 +324,7 @@ adjustments and other documents (MD-050). PK `Id`. Columns: `Code` (unique),
 column** — the owner approved one global list (A1-3 decision D9); a purpose
 column can be added later without breaking existing rows.
 
-### 4.3 Warehouses and Storage Locations (A1-4 Part 1, uncommitted)
+### 4.3 Warehouses and Storage Locations (A1-4 Part 1, committed 93b28c0)
 
 **`Warehouse`** — one row per physical warehouse; branch-owned (MD-040).
 PK `Id`. Key columns: `Code` (unique, ≤30 chars, **company-wide non-filtered** — Q-A),
@@ -334,11 +334,13 @@ Relationships: parent of many `StorageLocation` (FK → `Warehouse.Id`).
 
 **`StorageLocation`** — one row per location inside a warehouse (MD-041, MD-042).
 PK `Id`. Key columns: `Code` (unique per warehouse), `Name`, `WarehouseId`
-(FK → `Warehouse.Id`, **Restrict**), `LocationType` (enum: `Receiving`,
-`Storage`, `Picking`, `Shipping`, `Returns`, `Quarantine`, `Blocked` — CHECK
-constraint), `IsActive`, `CreatedAt`, `UpdatedAt`, `RowVersion`.
-Relationships: child of `Warehouse`. A blocked location (`LocationType =
-Blocked`) can still hold stock and stays active (no `IsBlocked ⇒ Inactive`
+(FK → `Warehouse.Id`, **Restrict**), `Type` (string status code per DM-5:
+`Receiving`, `Quarantine`, `Storage`, `Returns`, `Staging` — CHECK
+constraint; D-16 lists five types, no `Picking` or `Shipping`),
+`IsBlocked` (bit, MD-042; blocked locations are excluded from eligible available stock),
+`IsActive`, `CreatedAt`, `UpdatedAt`, `RowVersion`.
+Relationships: child of `Warehouse`. A blocked location (`IsBlocked = true`)
+can still hold stock and stays active (no `IsBlocked ⇒ Inactive`
 constraint — removed as not PRD-required).
 
 ### 4.4 MasterData ER diagram
@@ -460,7 +462,8 @@ erDiagram
         string Code UK
         string Name
         guid WarehouseId FK
-        string LocationType
+        string Type
+        bool IsBlocked
         bool IsActive
     }
 ```
