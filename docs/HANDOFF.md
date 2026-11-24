@@ -17,19 +17,20 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 ## 2. Status
 
 ### Current handoff (refresh at every handoff; read before any edit)
-- Last refreshed: 2026-11-24T19:29:42Z
+- Last refreshed: 2026-11-24T23:11:00Z
 - Active agent: none
-- Last commit: e67007c (docs sync). A1-4 Part 1 code is 93b28c0. Next: docs fix for A1-4 Part 1 status, location types, StorageLocation comment.
-- Git status: 6 untracked (.kilo/plans/), 0 modified, 0 staged (refreshed at handoff)
-- Uncommitted scope: A1-4 Part 1 committed; only .kilo/plans/ untracked
-- Changed/new/deleted files: A1-4 Part 1 committed (93b28c0); .kilo/plans/ untracked (6 plan files)
-- Decisions: Q-A…Q-D accepted; Q-E open; blocked⇒inactive check removed (Decision Register §8/§9)
+- Last commit: eb5d9a0 (docs: fix A1-4 Part 1 status and StorageLocation types). A1-4 Part 1 code is 93b28c0; e67007c docs sync.
+- Git status (before this docs sync): 0 modified, 0 staged; `.kilo/` is git-ignored (`.git/info/exclude`), so the plan files under `.kilo/plans/` do not appear in `git status`
+- Uncommitted scope: A1-4 Part 1 committed; this docs sync (HANDOFF.md, docs/HANDOFF.md, docs/A1-PROGRESS.md) is the only uncommitted work
+- Changed/new/deleted files: A1-4 Part 1 committed (93b28c0); this docs sync modifies 3 files; no source/test/migration/config change
+- Decisions: Q-A…Q-D accepted; Q-E decided 2026-11-25 (option a); blocked⇒inactive check removed (Decision Register §8/§9)
 - Build: 0 errors / 0 warnings — verified
-- Test: 249/249 ×2 — verified
+- Test: 249/249 ×2 — verified (owner-reported; A1-4 log was not saved). Owner re-ran the full sweep 2026-11-25 → build 0 errors, 249/249 passed (MasterData.UnitTests 24, Architecture 17, PlatformCore.UnitTests 68, MasterData.IntegrationTests 48, PlatformCore.IntegrationTests 92), format exit 0, docker healthy; saved /tmp/test-run-a1-4-verify.txt
 - Format: clean — verified
 - Migration: 20261124181017_A1WarehousesLocations created, NOT applied
 - Superseded plans: `.kilo/plans/1795541990951-a1-4-warehouses-locations.md` — SUPERSEDED; replacement: `.kilo/plans/1795543141178-knowledge-handoff-audit.md`
-- Next step: A1-4 Part 1 committed; Part 2 only after Q-E is resolved
+- Q-E (decided 2026-11-25, option a): explicit system scope for seed, migration and later background jobs; fail closed by default; never reachable from HTTP. Part 2 not started.
+- Next step: A1-4 Part 2 (branch scope) — Q-E decided (option a); Part 2 not started
 
 | Item | State |
 |---|---|
@@ -192,12 +193,14 @@ re-running: `dotnet test 2>&1 | tee /tmp/test-run-N.txt`. Never tail and discard
 A failure message that was not captured cannot be diagnosed later, and re-running
 overwrites the evidence. Capture, then read, then decide.
 
+8. **Several AI tools use this repo (OpenCode, Kilo).** Trust the disk, git log and HANDOFF, never chat memory. End every session by updating section 2 and committing, or by listing every uncommitted file.
+
 ## 10. How to continue (instructions to the next AI)
 
 1. Reply to the owner briefly. Lead with the result.
 2. Do not trust this file over the disk. Run `pwd`, `git status`, `ls`, and the checks in section 9 #1–#2 to learn what is actually done. Ask the owner for the result of #3–#4 if you cannot run them yourself.
 3. Fix whatever section 9 shows broken before starting any slice.
-4. Then continue the current slice. **A0 is closed** (`docs/A0-PROGRESS.md`, including the **A0-8** hardening record of 2026-11-22 — do not re-run it); **A1 is in progress** — read `docs/A1-PROGRESS.md` first (increment plan §1, owner blockers §0, evidence §5–§7), then the slice files listed in `docs/prd/INDEX.md` (or run `/slice A1`), and follow its plan. Do not re-do A0. **Next increment: A1-4 (warehouses + locations)** — keep the DB-first style A1-3 used (plan → owner approval → code → tests → docs).
+4. Then continue the current slice. **A0 is closed** (`docs/A0-PROGRESS.md`, including the **A0-8** hardening record of 2026-11-22 — do not re-run it); **A1 is in progress** — read `docs/A1-PROGRESS.md` first (increment plan §1, owner blockers §0, evidence §5–§7), then the slice files listed in `docs/prd/INDEX.md` (or run `/slice A1`), and follow its plan. Do not re-do A0. **Next: A1-4 Part 2 (branch scope) — Q-E decided 2026-11-25 (option a); then A1-5** — keep the DB-first style A1-3 used (plan → owner approval → code → tests → docs).
 5. Follow the project `AGENTS.md` and `my-ai-knowledge/AGENTS.md`. In particular: do only what was asked; never commit, push, deploy or delete data without permission; run build and tests after changing code and never claim a check passed unless you ran it; do not invent APIs, files, requirements or results.
 6. Do not read the whole PRD or the whole library. State which files you read before you write code.
 7. Do not claim anything about OpenCode behaviour that you did not verify; the official docs are at https://opencode.ai/docs (rules, permissions, commands, ide, skills) and VS Code Linux setup at https://code.visualstudio.com/docs/setup/linux.

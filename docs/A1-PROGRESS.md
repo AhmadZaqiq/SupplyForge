@@ -3,7 +3,7 @@
 Slice: **A1 Master + Inventory core** (PRD §11.2). Created: 2026-11-20.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
-**Active agent:** none · **Last handoff:** 2026-11-24T19:29:42Z (A1-4 Part 1 committed 93b28c0; docs sync)
+**Active agent:** none · **Last handoff:** 2026-11-24T23:11:00Z (A1-4 Part 1 committed 93b28c0; docs sync; Q-E decided 2026-11-25 option a)
 
 **Files read before planning:** `AGENTS.md` (root), `HANDOFF.md`,
 `docs/prd/INDEX.md`, `docs/prd/00-how-to-use.md`, `03-constraints-assumptions-defaults.md`,
@@ -59,7 +59,7 @@ WAC → documents that post movements.
 | A1-1 | **Master Data module foundation** — `SupplyForge.MasterData`, `.Contracts`, `.Infrastructure` per ADR-001; `master_data` schema; `Company` singleton + **3-branch seed**; ambient session generalised from 2 → N module contexts (ADR-003 extension, Host-only composition) | MD-001, MD-002, DM-1, A-2, A-4, ADR-001, ADR-003, MOD-1, MOD-5 | **Done 2026-11-20** (evidence §5) |
 | A1-2 | **Products + catalogue** — Product (RequiresInspection, reorder, lead time, default price, standard cost), category hierarchy, UoM + conversions, product statuses with no-archive-while-on-hand | MD-010, MD-011, MD-012, MD-013, DM-2, DM-5 | **Done 2026-11-22** (evidence §6) |
 | A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | **Done 2026-11-24** (evidence §7) |
-| A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1 | **Part 1 committed 2026-11-24 (93b28c0); Part 2 pending Q-E** |
+| A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1 | **Part 1 committed 2026-11-24 (93b28c0); Part 2 pending (Q-E decided 2026-11-25, option a)** |
 | A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | Planned |
 | A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | Planned |
 | A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | Planned |
@@ -193,7 +193,7 @@ always-on rules.
 - **Q-B** entity/table name **`StorageLocation`** (DM-9.2).
 - **Q-C** `IsCompanyWide` on `platform.User` in **Part 2**, migration **file only**. BRN-010 text (`02b:67`): "Users assigned one+ branches or company-wide scope flag."
 - **Q-D** `ICurrentBranchScope` = `BranchIds` + `IsCompanyWide` + `CanAccess(Guid)`.
-- **Q-E** **not decided**; owner wants a null scope to fail closed for requests. Seed/migration (no user) still need to see all — resolve in Part 2.
+- **Q-E** **decided 2026-11-25 (option a)**: explicit system scope for seed, migration and later background jobs; fail closed by default; never reachable from HTTP. Part 2 not started.
 
 ### Removed constraint (not PRD-required)
 
@@ -515,9 +515,10 @@ supplier/customer approval or Blocked *behaviour* (D13 → A2/A3); contacts
 
 - `dotnet build` → 0 errors, 0 warnings
 - `dotnet test` → **249/249** (architecture 17, PlatformCore unit 68, MasterData unit 24, PlatformCore integration 92, MasterData integration 48), **two consecutive runs**
+- Owner re-ran the full sweep 2026-11-25 → build 0 errors, 249/249 passed (MasterData.UnitTests 24, Architecture 17, PlatformCore.UnitTests 68, MasterData.IntegrationTests 48, PlatformCore.IntegrationTests 92), `dotnet format` exit 0, docker healthy; saved `/tmp/test-run-a1-4-verify.txt`
 - `dotnet format --verify-no-changes` → exit 0
 - Migration file `20261124181017_A1WarehousesLocations` created; **NOT applied** (owner approval required)
-- **Committed and pushed** — `93b28c0` (A1-4 Part 1), `e67007c` (docs sync)
+- **Committed and pushed** — `93b28c0` (A1-4 Part 1), `e67007c` + `eb5d9a0` (docs sync)
 
 ## Handoff log
 
