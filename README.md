@@ -5,7 +5,7 @@ receipt → stock → sale → shipment → invoice → payment → report. One 
 three seeded branches. This is a **portfolio backend, not a certified ERP**
 (see `docs/prd/01-introduction.md`).
 
-**Status:** active development — slice **A0**: increments A0-1…A0-7 done; the **A0 gate is closed** (all five PRD §11.2 items evidenced in `docs/A0-PROGRESS.md`). Slice **A1**: A1-1, A1-2, A1-3 committed; **A1-4 Part 1 complete (uncommitted, owner review pending)** — Warehouses and Storage Locations; next: A1-4 Part 2 after Q-E (branch scope).
+**Status:** active development — slice **A0**: increments A0-1…A0-7 done; the **A0 gate is closed** (all five PRD §11.2 items evidenced in `docs/A0-PROGRESS.md`). Slice **A1**: A1-1, A1-2, A1-3 committed; **A1-4 Part 1 committed (93b28c0)** — Warehouses and Storage Locations; next: A1-4 Part 2 after Q-E (branch scope).
 
 Slice-by-slice progress with evidence lives in
 [`docs/A0-PROGRESS.md`](docs/A0-PROGRESS.md) and [`docs/A1-PROGRESS.md`](docs/A1-PROGRESS.md); session continuity in
@@ -73,7 +73,7 @@ default**: every request re-authorizes (SEC-10), endpoints declare named
 | A1-1 | `MasterData` module per ADR-001, `master_data` schema + company singleton + 3-branch seed (MD-001/MD-002), ambient session generalised 2 → N contexts (ADR-003), MOD-10 arch-test extension | **Committed** (`704b665`) |
 | A1-2 | Product catalogue — `Product`/`ProductStatus`/`Category`/`UnitOfMeasure`/`UnitOfMeasureConversion` (MD-010…MD-013), zero-cascade FKs, CHECK `Factor > 0` | **Committed** (`704b665`) |
 | A1-3 | Partners + shared master — `Supplier`/`Customer` + statuses, `CreditLimit` decimal(18,2) NOT NULL default 0 (CHECK ≥ 0), addresses with default-shipping/billing filtered unique indexes, `TaxRate` (Rate decimal(9,6), CHECK 0–100), `PaymentTerm` (DueDays CHECK ≥ 0), `ReasonCode` global list (MD-020, MD-030, MD-031, MD-050, PLT-075) | **Committed** (`708d171`) |
-| **A1-4 Part 1** | **Warehouses + Storage Locations** — `Warehouse` (branch-owned, `Code` unique company-wide non-filtered), `StorageLocation` (7 location types per D-16: Receiving, Storage, Picking, Shipping, Returns, Quarantine, Blocked), `LocationType` enum, port `ILocationDeactivationGuard` + placeholder implementation, migration file `20261124181017_A1WarehousesLocations`, 7 unit + 12 integration tests on throwaway DBs | **Uncommitted, owner review pending** (migration **file only**, not applied) |
+| **A1-4 Part 1** | **Warehouses + Storage Locations** — `Warehouse` (branch-owned, `Code` unique company-wide non-filtered), `StorageLocation` (7 location types per D-16: Receiving, Storage, Picking, Shipping, Returns, Quarantine, Blocked), `LocationType` enum, port `ILocationDeactivationGuard` + placeholder implementation, migration file `20261124181017_A1WarehousesLocations`, 7 unit + 12 integration tests on throwaway DBs | **Committed** (`93b28c0`) |
 | A1-4 Part 2 | Branch scope via `ICurrentBranchScope` + EF global query filters on `MasterDataDbContext` (BRN-001…014) | **Planned** (blocked on Q-E: null scope behavior) |
 
 ### Master Data capabilities implemented so far
@@ -141,7 +141,7 @@ CI applies all migrations to its own ephemeral database automatically.
 |---|---|
 | **A0 gate** | **Closed** — all five PRD §11.2 items evidenced |
 | **A1-1, A1-2, A1-3** | **Committed** — 32 tables across 3 schemas (14 platform, 15 master_data, 3 integrations) |
-| **A1-4 Part 1** | **Complete, uncommitted** — Warehouses + Locations entities, migration file, 19 tests |
+| **A1-4 Part 1** | **Committed** (`93b28c0`) — Warehouses + Locations entities, migration file, 19 tests |
 | **A1-4 Part 2** | **Planned** — branch scope (blocked on Q-E) |
 | **A1-5…A1-9** | **Planned** — per `docs/A1-PROGRESS.md` §1 |
 | **Owner decisions open** | ADR-007 (approval engine), ADR-011 (logo upload), OD-03/TD-5 (WAC reversal), PLT-013 (password reset migration), Q-5 (email in P1), Q7 (MD-003 placement) |
