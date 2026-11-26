@@ -62,6 +62,29 @@ public sealed class AdjustmentOrchestrator
             throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
         }
 
+        // Validate adjustment line quantity/movement-type consistency
+        // before persisting any document or line (INV-040 application boundary).
+        int lineIndex = 0;
+        foreach (AdjustmentLineInput line in lines)
+        {
+            if (line.Qty == 0m)
+            {
+                throw new InvalidOperationException(
+                    $"Adjustment line {lineIndex} has zero quantity; zero movements are not permitted (INV-040).");
+            }
+            if (line.MovementType == StockMovement.MovementTypes.AdjustmentIn && line.Qty < 0m)
+            {
+                throw new InvalidOperationException(
+                    $"Adjustment line {lineIndex} is AdjustmentIn with negative quantity {line.Qty}; AdjustmentIn requires positive quantity (INV-040).");
+            }
+            if (line.MovementType == StockMovement.MovementTypes.AdjustmentOut && line.Qty > 0m)
+            {
+                throw new InvalidOperationException(
+                    $"Adjustment line {lineIndex} is AdjustmentOut with positive quantity {line.Qty}; AdjustmentOut requires negative quantity (INV-040).");
+            }
+            lineIndex++;
+        }
+
         var adjustment = new Adjustment
         {
             AdjustmentId = Guid.NewGuid(),
@@ -139,6 +162,13 @@ public sealed class AdjustmentOrchestrator
             throw new InvalidOperationException("No shortfall exists for this transfer.");
         }
 
+        // Branch ownership: the adjustment's branch must own the transfer
+        if (branchId != transfer.BranchId)
+        {
+            throw new InvalidOperationException(
+                "Branch scope rejected: adjustment branch does not own the transfer (BRN-012).");
+        }
+
         // Duplicate prevention within the same ambient transaction
         bool duplicate = await _inventory.Adjustments
             .AnyAsync(a => a.SourceDocumentType == "Transfer" && a.SourceDocumentId == transferId, ct);
@@ -203,6 +233,10 @@ public sealed class AdjustmentOrchestrator
         if (adjustment is null)
         {
             throw new InvalidOperationException("Adjustment not found.");
+        }
+        if (!_branchScope.CanAccess(adjustment.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
         }
         if (adjustment.Status != Adjustment.Statuses.Draft && adjustment.Status != Adjustment.Statuses.PendingApproval)
         {
@@ -291,6 +325,10 @@ public sealed class AdjustmentOrchestrator
         if (adjustment is null)
         {
             throw new InvalidOperationException("Adjustment not found.");
+        }
+        if (!_branchScope.CanAccess(adjustment.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
         }
         if (adjustment.Status == Adjustment.Statuses.Posted || adjustment.Status == Adjustment.Statuses.Rejected)
         {

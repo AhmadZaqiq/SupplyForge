@@ -9,8 +9,12 @@ cross-checked against the entity classes. This guide is **descriptive of the
 current schema, not a requirements source** — it goes stale the moment a
 migration changes the model, so re-read the snapshot when that happens.
 
-**Scope:** 3 modules, 3 schemas, **32 tables**, all in one SQL Server database
-(`SupplyForge`). Nothing outside these three modules owns tables yet.
+**Scope:** 4 modules, 4 schemas, **40 tables** in one SQL Server database
+(`SupplyForge`) — of which **32 are applied** to the development database
+(`platform` 14, `master_data` 15, `integrations` 3) and **8 `inventory` tables
+exist only in migration files** (`20261125171326_A1InventoryLedger`,
+`20261126004151_A1TransferOrchestration`) — **not yet applied**, pending owner
+approval (see §6). Nothing outside these four modules owns tables.
 
 ---
 
@@ -21,7 +25,7 @@ Every term below is defined here once and reused afterwards.
 | Term | Meaning |
 |---|---|
 | **Table** | A named, rectangular grid of rows inside a database schema. This project's tables are created by EF Core migrations. |
-| **Schema** | A namespace *inside* one database — a prefix that groups tables, written `schema.Table` (e.g. `platform.User`). Three schemas exist: `platform`, `master_data`, `integrations`. |
+| **Schema** | A namespace *inside* one database — a prefix that groups tables, written `schema.Table` (e.g. `platform.User`). Four schemas exist: `platform`, `master_data`, `integrations`, `inventory` (the last one only in migration files, see §6). |
 | **Column** | One named field of a table (e.g. `UserName`). Each column has one data type. |
 | **Row (record)** | One horizontal entry in a table — one user, one product, one message. |
 | **Primary key (PK)** | The column(s) that uniquely identify a row. Written **PK** below. A table cannot have two rows with the same PK. |
@@ -38,13 +42,14 @@ Every term below is defined here once and reused afterwards.
 
 ---
 
-## 2. The three modules at a glance
+## 2. The four modules at a glance
 
 | Module | Schema | Tables | Owns |
 |---|---|---|---|
 | **PlatformCore** | `platform` | 14 | Identity (users/roles/permissions), tokens, API keys, audit trail, notifications, sequences, idempotency, job runs |
 | **MasterData** | `master_data` | 15 | Company, branches, product catalogue, partners (supplier/customer + addresses), tax rates, payment terms, reason codes, **warehouses, storage locations** |
 | **Integrations** | `integrations` | 3 | Outbox, inbox, integration log |
+| **Inventory** | `inventory` | 8 | Stock ledger and balances, WAC cost buckets, transfer / adjustment / opening-import documents — **migration files only, not applied to this database (see §6)** |
 
 **Cross-module rule (MOD-1):** each module reads and writes only its own tables.
 Consequently **no FK crosses a schema boundary**. Where one module needs a value

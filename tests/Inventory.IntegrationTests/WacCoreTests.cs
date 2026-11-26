@@ -891,7 +891,7 @@ public sealed class WacCoreTests : IAsyncLifetime
             Assert.NotNull(productCost);
             // Initial 100 + 5*10 (receipts) - 5*5 (issues) = 125
             Assert.Equal(125, productCost!.QtyOnHand);
-            
+
             var movements = await assertInventoryDb.StockMovements.Where(m => m.ProductId == _productId).ToListAsync();
             Assert.Equal(1 + receiptCount + issueCount, movements.Count); // 1 opening + 5 receipts + 5 issues
         }
@@ -1177,6 +1177,131 @@ public sealed class WacCoreTests : IAsyncLifetime
         finally
         {
             assertScope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task WAC_Scale8_FractionalCost_PreservedThroughTransferOut_TransferIn()
+    {
+        // Arrange - source warehouse with stock at fractional WAC (scale 8)
+        var (initScope, initPoster, initInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var opening = CreateMovement(_productId, _warehouse1Id, _location1Id, 100, StockMovement.MovementTypes.OpeningBalance, 10.12345678m);
+            await initPoster.PostAsync(opening, "wac-scale8-init", "hash-wac-scale8-init");
+        }
+        finally
+        {
+            initScope.Dispose();
+        }
+
+        // Act - TransferOut from source, then TransferIn to destination
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var transferOut = CreateMovement(_productId, _warehouse1Id, _location1Id, -30, StockMovement.MovementTypes.TransferOut);
+            await poster.PostAsync(transferOut, "wac-scale8-out", "hash-wac-scale8-out");
+
+            // Verify TransferOut.UnitCost preserves scale-8 source WAC
+            var outMovement = await inventoryDb.StockMovements
+                .FirstOrDefaultAsync(m => m.SourceDocumentId == transferOut.SourceDocumentId);
+            Assert.NotNull(outMovement);
+            Assert.Equal(10.12345678m, outMovement!.UnitCost);
+
+            // TransferIn to destination warehouse at source WAC
+            var transferIn = CreateMovement(_productId, _warehouse2Id, _location2Id, 30, StockMovement.MovementTypes.TransferIn, 10.12345678m);
+            await poster.PostAsync(transferIn, "wac-scale8-in", "hash-wac-scale8-in");
+
+            // Verify TransferIn.UnitCost preserves scale-8 source WAC
+            var inMovement = await inventoryDb.StockMovements
+                .FirstOrDefaultAsync(m => m.SourceDocumentId == transferIn.SourceDocumentId);
+            Assert.NotNull(inMovement);
+            Assert.Equal(10.12345678m, inMovement!.UnitCost);
+
+            // Verify destination WAC matches source WAC (30 units at 10.12345678)
+            var destCost = await inventoryDb.ProductCosts
+                .FirstOrDefaultAsync(pc => pc.ProductId == _productId && pc.WarehouseId == _warehouse2Id);
+            Assert.NotNull(destCost);
+            Assert.Equal(30m, destCost.QtyOnHand);
+            Assert.Equal(10.12345678m, Math.Round(destCost.AvgCost, 8));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task WAC_Scale8_MultiStepTransfer_DestinationWACMatchesSource()
+    {
+        // Arrange - source warehouse with stock at fractional WAC
+        var (initScope, initPoster, initInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var opening = CreateMovement(_productId, _warehouse1Id, _location1Id, 100, StockMovement.MovementTypes.OpeningBalance, 7.77777777m);
+            await initPoster.PostAsync(opening, "wac-multistep-init", "hash-wac-multistep-init");
+        }
+        finally
+        {
+            initScope.Dispose();
+        }
+
+        // Act - TransferOut 40 units, TransferIn 40 units to destination
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var transferOut = CreateMovement(_productId, _warehouse1Id, _location1Id, -40, StockMovement.MovementTypes.TransferOut);
+            await poster.PostAsync(transferOut, "wac-multistep-out", "hash-wac-multistep-out");
+
+            var transferIn = CreateMovement(_productId, _warehouse2Id, _location2Id, 40, StockMovement.MovementTypes.TransferIn, 7.77777777m);
+            await poster.PostAsync(transferIn, "wac-multistep-in", "hash-wac-multistep-in");
+
+            // Assert - source remaining stock keeps WAC
+            var srcCost = await inventoryDb.ProductCosts
+                .FirstOrDefaultAsync(pc => pc.ProductId == _productId && pc.WarehouseId == _warehouse1Id);
+            Assert.NotNull(srcCost);
+            Assert.Equal(60m, srcCost.QtyOnHand);
+            Assert.Equal(7.77777777m, Math.Round(srcCost.AvgCost, 8));
+
+            // Assert - destination WAC matches source WAC exactly
+            var destCost = await inventoryDb.ProductCosts
+                .FirstOrDefaultAsync(pc => pc.ProductId == _productId && pc.WarehouseId == _warehouse2Id);
+            Assert.NotNull(destCost);
+            Assert.Equal(40m, destCost.QtyOnHand);
+            Assert.Equal(7.77777777m, Math.Round(destCost.AvgCost, 8));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task WAC_Scale8_OpeningBalance_FractionalCostPreserved()
+    {
+        // Arrange & Act - opening balance with fractional unit cost
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var opening = CreateMovement(_productId, _warehouse1Id, _location1Id, 100, StockMovement.MovementTypes.OpeningBalance, 3.33333333m);
+            await poster.PostAsync(opening, "wac-scale8-open", "hash-wac-scale8-open");
+
+            // Assert - WAC preserves scale-8 fractional cost
+            var productCost = await inventoryDb.ProductCosts
+                .FirstOrDefaultAsync(pc => pc.ProductId == _productId && pc.WarehouseId == _warehouse1Id);
+            Assert.NotNull(productCost);
+            Assert.Equal(100m, productCost.QtyOnHand);
+            Assert.Equal(3.33333333m, Math.Round(productCost.AvgCost, 8));
+
+            // Verify movement UnitCost preserves scale-8
+            var movement = await inventoryDb.StockMovements
+                .FirstOrDefaultAsync(m => m.ProductId == _productId && m.WarehouseId == _warehouse1Id);
+            Assert.NotNull(movement);
+            Assert.Equal(3.33333333m, movement!.UnitCost);
+        }
+        finally
+        {
+            scope.Dispose();
         }
     }
 }

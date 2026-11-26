@@ -39,6 +39,7 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
     private Guid _location1Id;
     private Guid _location2Id;
     private Guid _branch1Id;
+    private Guid _branch2Id;
 
     public async Task InitializeAsync()
     {
@@ -156,6 +157,7 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         _location1Id = location1.Id;
         _location2Id = location2.Id;
         _branch1Id = branch1.Id;
+        _branch2Id = branch2.Id;
     }
 
     private (IServiceScope Scope, AdjustmentOrchestrator Orchestrator, InventoryDbContext InventoryDb, BranchScopeHolder Holder) CreateSystemScope()
@@ -163,6 +165,17 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         var scope = _services.CreateScope();
         var holder = scope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
         holder.Scope = SystemBranchScope.Create();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
+        var inventoryDb = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+        return (scope, orchestrator, inventoryDb, holder);
+    }
+
+    private async Task<(IServiceScope Scope, AdjustmentOrchestrator Orchestrator, InventoryDbContext InventoryDb, BranchScopeHolder Holder)> CreateBranchScopeAsync(Guid branchId)
+    {
+        var scope = _services.CreateScope();
+        var provider = scope.ServiceProvider.GetRequiredService<IBranchScopeProvider>();
+        var holder = scope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
+        holder.Scope = await provider.ResolveAsync(branchId);
         var orchestrator = scope.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
         var inventoryDb = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         return (scope, orchestrator, inventoryDb, holder);
@@ -528,6 +541,186 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         finally
         {
             scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_AdjustmentIn_NegativeQty_Rejected()
+    {
+        // Act & Assert - AdjustmentIn with negative quantity rejected at creation
+        var (scope, orchestrator, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                orchestrator.CreateAdjustmentAsync(
+                    "DAMAGED", "Negative in", _branch1Id,
+                    new[] { new AdjustmentLineInput(_productId, _warehouse1Id, _location1Id, -5m, StockMovement.MovementTypes.AdjustmentIn) }));
+
+            // Assert - no adjustment persisted
+            var adjustments = await inventoryDb.Adjustments.ToListAsync();
+            Assert.Empty(adjustments);
+
+            // Assert - no adjustment lines persisted
+            var lines = await inventoryDb.AdjustmentLines.ToListAsync();
+            Assert.Empty(lines);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_AdjustmentOut_PositiveQty_Rejected()
+    {
+        // Act & Assert - AdjustmentOut with positive quantity rejected at creation
+        var (scope, orchestrator, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                orchestrator.CreateAdjustmentAsync(
+                    "DAMAGED", "Positive out", _branch1Id,
+                    new[] { new AdjustmentLineInput(_productId, _warehouse1Id, _location1Id, 5m, StockMovement.MovementTypes.AdjustmentOut) }));
+
+            // Assert - no adjustment persisted
+            var adjustments = await inventoryDb.Adjustments.ToListAsync();
+            Assert.Empty(adjustments);
+
+            // Assert - no adjustment lines persisted
+            var lines = await inventoryDb.AdjustmentLines.ToListAsync();
+            Assert.Empty(lines);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_ZeroQty_Rejected()
+    {
+        // Act & Assert - zero quantity rejected at creation
+        var (scope, orchestrator, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                orchestrator.CreateAdjustmentAsync(
+                    "DAMAGED", "Zero qty", _branch1Id,
+                    new[] { new AdjustmentLineInput(_productId, _warehouse1Id, _location1Id, 0m, StockMovement.MovementTypes.AdjustmentIn) }));
+
+            // Assert - no adjustment persisted
+            var adjustments = await inventoryDb.Adjustments.ToListAsync();
+            Assert.Empty(adjustments);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_AdjustmentIn_PositiveQty_Accepted()
+    {
+        // Act - AdjustmentIn with positive quantity accepted
+        var (scope, orchestrator, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            Guid adjustmentId = await orchestrator.CreateAdjustmentAsync(
+                "FOUND", "Positive in", _branch1Id,
+                new[] { new AdjustmentLineInput(_productId, _warehouse1Id, _location1Id, 5m, StockMovement.MovementTypes.AdjustmentIn) });
+
+            // Assert - adjustment persisted
+            Adjustment? adjustment = await inventoryDb.Adjustments.FindAsync([adjustmentId]);
+            Assert.NotNull(adjustment);
+            Assert.Equal(Adjustment.Statuses.Draft, adjustment.Status);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_AdjustmentOut_NegativeQty_Accepted()
+    {
+        // Act - AdjustmentOut with negative quantity accepted
+        var (scope, orchestrator, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            Guid adjustmentId = await orchestrator.CreateAdjustmentAsync(
+                "DAMAGED", "Negative out", _branch1Id,
+                new[] { new AdjustmentLineInput(_productId, _warehouse1Id, _location1Id, -5m, StockMovement.MovementTypes.AdjustmentOut) });
+
+            // Assert - adjustment persisted
+            Adjustment? adjustment = await inventoryDb.Adjustments.FindAsync([adjustmentId]);
+            Assert.NotNull(adjustment);
+            Assert.Equal(Adjustment.Statuses.Draft, adjustment.Status);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_Approve_WrongBranch_Rejected()
+    {
+        // Arrange - adjustment created in branch1
+        Guid adjustmentId;
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            adjustmentId = await createOrchestrator.CreateAdjustmentAsync(
+                "FOUND", "Found units", _branch1Id,
+                new[] { LineIn(_productId, _warehouse1Id, _location1Id, 5m) });
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to approve from branch2 scope
+        (IServiceScope branch2Scope, AdjustmentOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.ApproveAdjustmentAsync(adjustmentId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_Reject_WrongBranch_Rejected()
+    {
+        // Arrange - adjustment created in branch1
+        Guid adjustmentId;
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            adjustmentId = await createOrchestrator.CreateAdjustmentAsync(
+                "FOUND", "Found units", _branch1Id,
+                new[] { LineIn(_productId, _warehouse1Id, _location1Id, 5m) });
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to reject from branch2 scope
+        (IServiceScope branch2Scope, AdjustmentOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.RejectAdjustmentAsync(adjustmentId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
         }
     }
 }

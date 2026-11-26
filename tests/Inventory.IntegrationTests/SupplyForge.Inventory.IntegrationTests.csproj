@@ -19,6 +19,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- D0 test-parallelism finding (HANDOFF §12, option B): serialize test
+       collections inside this integration project so throwaway database
+       creation never runs concurrently with itself. -->
+  <ItemGroup>
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Inventory\SupplyForge.Inventory\SupplyForge.Inventory.csproj" />
     <ProjectReference Include="..\..\src\Modules\Inventory\SupplyForge.Inventory.Infrastructure\SupplyForge.Inventory.Infrastructure.csproj" />

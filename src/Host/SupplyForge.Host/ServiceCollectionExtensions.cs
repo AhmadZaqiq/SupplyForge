@@ -176,9 +176,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SupplyForge.Inventory.Infrastructure.TransferOrchestrator>();
         services.AddScoped<SupplyForge.Inventory.Infrastructure.AdjustmentOrchestrator>();
         services.AddScoped<SupplyForge.Inventory.Infrastructure.OpeningImportOrchestrator>();
-        // Placeholder implementation; Inventory provides real guard in A1-5.
+        // A1-5 MD-042: real location deactivation guard (Inventory checks StockBalance).
         services.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard,
-            SupplyForge.MasterData.Infrastructure.Location.DefaultLocationDeactivationGuard>();
+            SupplyForge.Inventory.Infrastructure.Location.LocationDeactivationGuard>();
         // A1-5 Increment 2: warehouse branch resolver for cross-branch validation.
         services.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();

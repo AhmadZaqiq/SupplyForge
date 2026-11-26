@@ -19,6 +19,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- D0 test-parallelism finding (HANDOFF §12, option B): serialize test
+       collections inside this integration project so CREATE/DROP database
+       work and Host booting never run concurrently with each other. -->
+  <ItemGroup>
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\PlatformCore\SupplyForge.PlatformCore.Infrastructure\SupplyForge.PlatformCore.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Integrations\SupplyForge.Integrations.Infrastructure\SupplyForge.Integrations.Infrastructure.csproj" />

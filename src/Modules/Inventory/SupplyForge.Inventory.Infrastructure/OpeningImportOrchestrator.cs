@@ -100,6 +100,10 @@ public sealed class OpeningImportOrchestrator
         {
             throw new InvalidOperationException("Opening import not found.");
         }
+        if (!_branchScope.CanAccess(import.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: opening import branch not accessible (BRN-012).");
+        }
         if (import.Status != OpeningImport.Statuses.Draft)
         {
             throw new InvalidOperationException("Only Draft opening imports can be validated.");
@@ -202,6 +206,10 @@ public sealed class OpeningImportOrchestrator
         if (import is null)
         {
             throw new InvalidOperationException("Opening import not found.");
+        }
+        if (!_branchScope.CanAccess(import.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: opening import branch not accessible (BRN-012).");
         }
         if (import.Status == OpeningImport.Statuses.Posted || import.Status == OpeningImport.Statuses.Rejected)
         {

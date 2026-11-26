@@ -115,6 +115,10 @@ public sealed class TransferOrchestrator
         {
             throw new InvalidOperationException("Transfer not found.");
         }
+        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
+        }
         if (transfer.Status != Transfer.Statuses.Draft)
         {
             throw new InvalidOperationException("Only Draft transfers can be approved.");
@@ -354,6 +358,10 @@ public sealed class TransferOrchestrator
         {
             throw new InvalidOperationException("Transfer not found.");
         }
+        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
+        }
         if (transfer.Status != Transfer.Statuses.Draft && transfer.Status != Transfer.Statuses.Approved)
         {
             throw new InvalidOperationException("Only Draft or Approved transfers can be cancelled.");
@@ -375,6 +383,10 @@ public sealed class TransferOrchestrator
         if (transfer is null)
         {
             throw new InvalidOperationException("Transfer not found.");
+        }
+        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
+        {
+            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
         }
 
         if (transfer.Status == Transfer.Statuses.Cancelled || transfer.Status == Transfer.Statuses.Closed)

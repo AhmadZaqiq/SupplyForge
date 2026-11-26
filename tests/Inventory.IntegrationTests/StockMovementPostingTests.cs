@@ -82,6 +82,8 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard,
+            SupplyForge.Inventory.Infrastructure.Location.LocationDeactivationGuard>();
 
         sc.AddDbContext<PlatformCoreDbContext>(o => o.UseSqlServer(ThrowawayDatabase.For(_dbName), sql =>
                 sql.MigrationsHistoryTable("__EFMigrationsHistory", PlatformCoreDbContext.Schema)));
@@ -253,6 +255,94 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
             inventoryDb.StockMovements.Remove(movement);
             await Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await inventoryDb.SaveChangesAsync());
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_Update_Rejected_SaveChangesAsyncBool()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-imm-1", "hash-imm-1");
+
+            // Act & Assert - Update via SaveChangesAsync(bool, Ct)
+            movement.Qty = 200;
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                await inventoryDb.SaveChangesAsync(true);
+            });
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_Delete_Rejected_SaveChangesAsyncBool()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-imm-2", "hash-imm-2");
+
+            // Act & Assert - Delete via SaveChangesAsync(bool, Ct)
+            inventoryDb.StockMovements.Remove(movement);
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                await inventoryDb.SaveChangesAsync(true);
+            });
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_Update_Rejected_SaveChangesBool()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-imm-3", "hash-imm-3");
+
+            // Act & Assert - Update via SaveChanges(bool)
+            movement.Qty = 200;
+            Assert.Throws<InvalidOperationException>(() =>
+                inventoryDb.SaveChanges(true));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_Delete_Rejected_SaveChangesBool()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-imm-4", "hash-imm-4");
+
+            // Act & Assert - Delete via SaveChanges(bool)
+            inventoryDb.StockMovements.Remove(movement);
+            Assert.Throws<InvalidOperationException>(() =>
+                inventoryDb.SaveChanges(true));
         }
         finally
         {
@@ -519,7 +609,7 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
             // EvaluateClaim treats non-Completed as InProgress; this is a known limitation).
             // Note: [Key] is a reserved keyword in SQL Server, must be quoted. Table is IdempotencyKey (singular).
             // EvaluateClaim treats any non-Completed status as InProgress, so delete the row instead.
-            await platformCoreDb.Database.ExecuteSqlRawAsync(
+            await platformCoreDb.Database.ExecuteSqlAsync(
                 $"DELETE FROM platform.IdempotencyKey WHERE [Key] = '{key}'");
             platformCoreDb.ChangeTracker.Clear();
 
@@ -743,9 +833,9 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         await using (var session = await sessionFactory.BeginAsync())
         {
             var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 25);
-            
+
             await poster.PostAsync(movement, "ambient-idem-1", "ambient-hash-1");
-            
+
             await session.RollbackAsync(); // Should rollback everything including idempotency claim
         }
 
@@ -765,7 +855,58 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         var idempotencyKey = await checkPlatformCoreDb.IdempotencyKeys
             .FirstOrDefaultAsync(k => k.Key == "ambient-idem-1");
         Assert.Null(idempotencyKey);
-        
+
         scope.Dispose();
+    }
+
+    [Fact]
+    public async Task MD_042_LocationDeactivationGuard_WithStock_ReturnsFalse()
+    {
+        // Arrange - opening balance creates StockBalance with OnHand > 0
+        var (initScope, initPoster, initInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var opening = CreateMovement(_productId, _warehouse1Id, _location1Id, 50, StockMovement.MovementTypes.OpeningBalance);
+            opening.UnitCost = 10m;
+            await initPoster.PostAsync(opening, "md-042-init", "hash-md-042-init");
+        }
+        finally
+        {
+            initScope.Dispose();
+        }
+
+        // Act - guard checks StockBalance for holdings at location1
+        var (scope, _, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var guard = scope.ServiceProvider.GetRequiredService<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard>();
+            bool canDeactivate = await guard.CanDeactivateAsync(_location1Id);
+
+            // Assert - location with stock cannot be deactivated
+            Assert.False(canDeactivate);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task MD_042_LocationDeactivationGuard_WithoutStock_ReturnsTrue()
+    {
+        // Arrange - location2 has no StockBalance
+        var (scope, _, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var guard = scope.ServiceProvider.GetRequiredService<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard>();
+            bool canDeactivate = await guard.CanDeactivateAsync(_location2Id);
+
+            // Assert - location without stock can be deactivated
+            Assert.True(canDeactivate);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
     }
 }

@@ -32,6 +32,12 @@
   <Folder Name="/tests/ArchitectureTests/">
     <Project Path="tests/ArchitectureTests/SupplyForge.ArchitectureTests.csproj" />
   </Folder>
+  <Folder Name="/tests/Inventory.IntegrationTests/">
+    <Project Path="tests/Inventory.IntegrationTests/SupplyForge.Inventory.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Inventory.UnitTests/">
+    <Project Path="tests/Inventory.UnitTests/SupplyForge.Inventory.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/tests/MasterData.IntegrationTests/">
     <Project Path="tests/MasterData.IntegrationTests/SupplyForge.MasterData.IntegrationTests.csproj" />
   </Folder>

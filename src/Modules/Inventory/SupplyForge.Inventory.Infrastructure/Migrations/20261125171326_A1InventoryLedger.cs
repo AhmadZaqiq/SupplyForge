@@ -62,7 +62,7 @@ namespace SupplyForge.Inventory.Infrastructure.Migrations
                     WarehouseId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     LocationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Qty = table.Column<decimal>(type: "decimal(18,4)", precision: 18, scale: 4, nullable: false),
-                    UnitCost = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
+                    UnitCost = table.Column<decimal>(type: "decimal(18,8)", precision: 18, scale: 8, nullable: false),
                     SourceDocumentType = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
                     SourceDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     ReversalOfMovementId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),

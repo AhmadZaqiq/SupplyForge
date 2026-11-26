@@ -35,8 +35,11 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
 
     private Guid _productId;
     private Guid _warehouse1Id;
+    private Guid _warehouse2Id;
     private Guid _location1Id;
+    private Guid _location2Id;
     private Guid _branch1Id;
+    private Guid _branch2Id;
 
     public async Task InitializeAsync()
     {
@@ -118,7 +121,8 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         md.Companies.Add(company);
 
         var branch1 = new Branch { Id = Guid.NewGuid(), Code = "BR1", Name = "Branch 1", IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
-        md.Branches.Add(branch1);
+        var branch2 = new Branch { Id = Guid.NewGuid(), Code = "BR2", Name = "Branch 2", IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
+        md.Branches.AddRange(branch1, branch2);
 
         var uomId = Guid.NewGuid();
         var uom = new UnitOfMeasure { Id = uomId, Code = "EA", Name = "Each", CreatedAt = DateTimeOffset.UtcNow };
@@ -137,17 +141,22 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         md.Products.Add(product);
 
         var warehouse1 = new Warehouse { Id = Guid.NewGuid(), Code = "WH-001", Name = "Warehouse 1", BranchId = branch1.Id, IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
-        md.Warehouses.Add(warehouse1);
+        var warehouse2 = new Warehouse { Id = Guid.NewGuid(), Code = "WH-002", Name = "Warehouse 2", BranchId = branch2.Id, IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
+        md.Warehouses.AddRange(warehouse1, warehouse2);
 
         var location1 = new StorageLocation { Id = Guid.NewGuid(), Code = "LOC-001", Name = "Location 1", Type = "Storage", WarehouseId = warehouse1.Id, IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
-        md.StorageLocations.Add(location1);
+        var location2 = new StorageLocation { Id = Guid.NewGuid(), Code = "LOC-002", Name = "Location 2", Type = "Storage", WarehouseId = warehouse2.Id, IsActive = true, CreatedAt = DateTimeOffset.UtcNow };
+        md.StorageLocations.AddRange(location1, location2);
 
         await md.SaveChangesAsync();
 
         _productId = product.Id;
         _warehouse1Id = warehouse1.Id;
+        _warehouse2Id = warehouse2.Id;
         _location1Id = location1.Id;
+        _location2Id = location2.Id;
         _branch1Id = branch1.Id;
+        _branch2Id = branch2.Id;
     }
 
     private (IServiceScope Scope, OpeningImportOrchestrator Orchestrator, InventoryDbContext InventoryDb, BranchScopeHolder Holder) CreateSystemScope()
@@ -155,6 +164,17 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         var scope = _services.CreateScope();
         var holder = scope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
         holder.Scope = SystemBranchScope.Create();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<OpeningImportOrchestrator>();
+        var inventoryDb = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+        return (scope, orchestrator, inventoryDb, holder);
+    }
+
+    private async Task<(IServiceScope Scope, OpeningImportOrchestrator Orchestrator, InventoryDbContext InventoryDb, BranchScopeHolder Holder)> CreateBranchScopeAsync(Guid branchId)
+    {
+        var scope = _services.CreateScope();
+        var provider = scope.ServiceProvider.GetRequiredService<IBranchScopeProvider>();
+        var holder = scope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
+        holder.Scope = await provider.ResolveAsync(branchId);
         var orchestrator = scope.ServiceProvider.GetRequiredService<OpeningImportOrchestrator>();
         var inventoryDb = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         return (scope, orchestrator, inventoryDb, holder);
@@ -293,6 +313,74 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         finally
         {
             scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_014_OpeningImport_Validate_WrongBranch_Rejected()
+    {
+        // Arrange - opening import created in branch1
+        Guid importId;
+        var (createScope, createOrchestrator, _, _) = CreateSystemScope();
+        try
+        {
+            importId = await createOrchestrator.CreateOpeningImportAsync(
+                _branch1Id,
+                new[]
+                {
+                    new OpeningImportLineInput(
+                        _productId, _warehouse1Id, _location1Id, 100m, 15.00m)
+                });
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to validate from branch2 scope
+        (IServiceScope branch2Scope, OpeningImportOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.ValidateOpeningImportAsync(importId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_014_OpeningImport_Reject_WrongBranch_Rejected()
+    {
+        // Arrange - opening import created in branch1
+        Guid importId;
+        var (createScope, createOrchestrator, _, _) = CreateSystemScope();
+        try
+        {
+            importId = await createOrchestrator.CreateOpeningImportAsync(
+                _branch1Id,
+                new[]
+                {
+                    new OpeningImportLineInput(
+                        _productId, _warehouse1Id, _location1Id, 100m, 15.00m)
+                });
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to reject from branch2 scope
+        (IServiceScope branch2Scope, OpeningImportOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.RejectOpeningImportAsync(importId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
         }
     }
 }

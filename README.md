@@ -68,7 +68,7 @@ Each module owns its schema. Cross-module references are plain `Guid` columns (D
 - **Partners** — suppliers and customers with statuses, credit limits, addresses (default shipping/billing)
 - **Shared lookups** — tax rates, payment terms, reason codes
 - **Warehouses** — branch-owned, unique company-wide code
-- **Storage Locations** — seven location types (Receiving, Storage, Picking, Shipping, Returns, Quarantine, Blocked), warehouse-owned
+- **Storage Locations** — five location types (Receiving, Quarantine, Storage, Returns, Staging; D-16/MD-041), warehouse-owned; `Blocked` is a separate per-location flag (MD-042), not a type
 
 ### Branch and Warehouse Scope
 
@@ -81,7 +81,7 @@ Each module owns its schema. Cross-module references are plain `Guid` columns (D
 
 - **StockMovement** — immutable append-only ledger (INSERT-only after creation; INV-010/012)
 - **Qty sign convention:** Issue/TransferOut/AdjustmentOut = negative; Receipt/TransferIn/AdjustmentIn/OpeningBalance = positive
-- **StockBalance** — unique on (WarehouseId, ProductId); concurrency protected with HOLDLOCK/UPDLOCK
+- **StockBalance** — unique on (ProductId, WarehouseId, LocationId); concurrency protected with HOLDLOCK/UPDLOCK
 - **ProductCost** — WAC cost bucket per (ProductId, WarehouseId), scale-8 rounding
 - **StockMovementPoster** — atomic posting inside the ambient session: HOLDLOCK on StockBalance + ProductCost, WAC application, idempotency claim/complete, no `FailAsync` (rollback via ambient transaction)
 - **Negative stock protection** — poster rejects issues/transfers/adjustments that would drive on-hand below zero (INV-NEG)
@@ -331,7 +331,7 @@ Integration tests for Inventory create and drop throwaway SQL Server databases p
 | `dotnet format --verify-no-changes` | Clean |
 | Migrations applied to dev DB | None (file only) |
 
-> Note: Running all integration test projects in parallel can cause SQL Server `CREATE DATABASE` contention (documented D0 finding in HANDOFF.md §12). Run classes individually or sequentially for reliable results.
+> Note: the three integration test projects each ship an `xunit.runner.json` with `parallelizeTestCollections: false` (option B of the D0 finding in HANDOFF.md §12). Test classes run one at a time *within* each integration project so SQL Server `CREATE DATABASE` and Host booting never collide; the three projects still run concurrently with each other. Unit and architecture projects keep the xUnit defaults.
 
 ## Project Status
 
@@ -349,10 +349,11 @@ All functionality listed in the "Implemented Functionality" section above is com
 | PLT-013 (password reset migration) | Owner migration approval required | Blocked |
 | MD-003 (Employee directory) | Q7 — placement awaiting owner decision | Not scheduled |
 | HTTP endpoints for Inventory | PLT-022 — no permission matrix exists | Not implemented (domain + infrastructure + tests only) |
-| Branch scope (A1-4 Part 2) | Completed, uncommitted | Awaiting owner commit |
-| Inventory ledger (A1-5) | Completed, uncommitted | Awaiting owner commit |
-| WAC core (A1-6) | Completed, uncommitted | Awaiting owner commit |
-| Transfer orchestration (A1-7) | Completed, verified, uncommitted | Awaiting owner commit |
+| Reconciliation job (INV-011) | Deferred in A1-5 (`docs/A1-PROGRESS.md` §10); no increment assigned yet | Not implemented |
+| Stock history queries (INV-013) | Needs permission matrix + endpoint — proposed for the first business API slice | Not implemented |
+| Outbox dispatcher (OUT-02/03/07, PLT-071) | Ownership/design pending owner decision | Not implemented (enqueue-only today) |
+
+Committed state: A1-4 Part 2, A1-5, A1-6 and A1-7 are **committed and pushed** as `29d65ba` (2026-11-26); the working tree at the time of writing carries only this remediation's uncommitted changes.
 
 ### Future Roadmap (not implemented)
 

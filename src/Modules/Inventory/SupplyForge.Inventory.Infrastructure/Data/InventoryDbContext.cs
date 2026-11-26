@@ -29,25 +29,37 @@ public class InventoryDbContext : DbContext
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        // StockMovement is INSERT-only: reject Modified/Deleted.
-        foreach (var entry in ChangeTracker.Entries<StockMovement>()
-            .Where(e => e.State is EntityState.Modified or EntityState.Deleted))
-        {
-            throw new InvalidOperationException(
-                "StockMovement is immutable: update and delete are not allowed (INV-010, INV-012).");
-        }
+        RejectStockMovementMutations();
         return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        RejectStockMovementMutations();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     public override int SaveChanges()
     {
+        RejectStockMovementMutations();
+        return base.SaveChanges();
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        RejectStockMovementMutations();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    private void RejectStockMovementMutations()
+    {
+        // StockMovement is INSERT-only: reject Modified/Deleted (INV-010, INV-012).
         foreach (var entry in ChangeTracker.Entries<StockMovement>()
             .Where(e => e.State is EntityState.Modified or EntityState.Deleted))
         {
             throw new InvalidOperationException(
                 "StockMovement is immutable: update and delete are not allowed (INV-010, INV-012).");
         }
-        return base.SaveChanges();
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -60,7 +72,7 @@ public class InventoryDbContext : DbContext
             e.HasKey(x => x.MovementId);
             e.Property(x => x.MovementType).HasMaxLength(30).IsRequired();
             e.Property(x => x.Qty).HasPrecision(18, 4);
-            e.Property(x => x.UnitCost).HasPrecision(18, 2);
+            e.Property(x => x.UnitCost).HasPrecision(18, 8);
             e.Property(x => x.SourceDocumentType).HasMaxLength(50).IsRequired();
             e.Property(x => x.RowVersion).IsRowVersion();
             e.HasIndex(x => new { x.ProductId, x.WarehouseId, x.LocationId });
@@ -154,7 +166,7 @@ public class InventoryDbContext : DbContext
             });
             e.HasKey(x => x.OpeningImportLineId);
             e.Property(x => x.Qty).HasPrecision(18, 4);
-            e.Property(x => x.UnitCost).HasPrecision(18, 2);
+            e.Property(x => x.UnitCost).HasPrecision(18, 8);
             e.HasOne<OpeningImport>().WithMany().HasForeignKey(x => x.OpeningImportId).OnDelete(DeleteBehavior.Restrict);
         });
     }

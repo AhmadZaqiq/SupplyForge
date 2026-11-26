@@ -1198,11 +1198,13 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
             {
                 var adjOrchestrator1 = scope1.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
                 var adjOrchestrator2 = scope2.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
-                var task1 = Task.Run<Guid?>(async () => {
+                var task1 = Task.Run<Guid?>(async () =>
+                {
                     try { return await adjOrchestrator1.CreateTransferShortfallAdjustmentAsync(transferId, "DAMAGED", "First", _branch1Id); }
                     catch { return null; }
                 });
-                var task2 = Task.Run<Guid?>(async () => {
+                var task2 = Task.Run<Guid?>(async () =>
+                {
                     try { return await adjOrchestrator2.CreateTransferShortfallAdjustmentAsync(transferId, "DAMAGED", "Second", _branch1Id); }
                     catch { return null; }
                 });
@@ -1228,6 +1230,196 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         finally
         {
             scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_030_Transfer_Approve_WrongBranch_Rejected()
+    {
+        // Arrange - transfer created in branch1
+        Guid transferId;
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            transferId = await createOrchestrator.CreateTransferAsync(
+                _warehouse1Id, _location1Id,
+                _warehouse2Id, _location2Id,
+                _productId, 10m);
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to approve from branch2 scope (wrong branch)
+        var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.ApproveTransferAsync(transferId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_030_Transfer_Cancel_WrongBranch_Rejected()
+    {
+        // Arrange - transfer created in branch1
+        Guid transferId;
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            transferId = await createOrchestrator.CreateTransferAsync(
+                _warehouse1Id, _location1Id,
+                _warehouse2Id, _location2Id,
+                _productId, 10m);
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to cancel from branch2 scope
+        var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.CancelTransferAsync(transferId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_030_Transfer_Close_WrongBranch_Rejected()
+    {
+        // Arrange - transfer created in branch1, shipped and received (In Transit)
+        Guid transferId;
+        var (initScope, _, initInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            using var posterScope = _services.CreateScope();
+            var posterHolder = posterScope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
+            posterHolder.Scope = SystemBranchScope.Create();
+            var poster = posterScope.ServiceProvider.GetRequiredService<StockMovementPoster>();
+            var opening = new StockMovement
+            {
+                MovementId = Guid.NewGuid(),
+                MovementType = StockMovement.MovementTypes.OpeningBalance,
+                ProductId = _productId,
+                WarehouseId = _warehouse1Id,
+                LocationId = _location1Id,
+                Qty = 100m,
+                UnitCost = 10.00m,
+                SourceDocumentType = "Test",
+                SourceDocumentId = Guid.NewGuid(),
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            await poster.PostAsync(opening, "inv-030-close-wb-init", "hash-inv-030-close-wb-init");
+        }
+        finally
+        {
+            initScope.Dispose();
+        }
+
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            transferId = await createOrchestrator.CreateTransferAsync(
+                _warehouse1Id, _location1Id,
+                _warehouse2Id, _location2Id,
+                _productId, 10m);
+            await createOrchestrator.ApproveTransferAsync(transferId);
+            await createOrchestrator.ShipTransferAsync(transferId);
+            await createOrchestrator.ReceiveTransferAsync(transferId, Guid.NewGuid(), 10m);
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to close from branch2 scope
+        var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2Orchestrator.CloseTransferAsync(transferId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_032_Transfer_Shortfall_WrongBranch_Rejected()
+    {
+        // Arrange - transfer created in branch1, partially received
+        Guid transferId;
+        var (initScope, _, initInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            using var posterScope = _services.CreateScope();
+            var posterHolder = posterScope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
+            posterHolder.Scope = SystemBranchScope.Create();
+            var poster = posterScope.ServiceProvider.GetRequiredService<StockMovementPoster>();
+            var opening = new StockMovement
+            {
+                MovementId = Guid.NewGuid(),
+                MovementType = StockMovement.MovementTypes.OpeningBalance,
+                ProductId = _productId,
+                WarehouseId = _warehouse1Id,
+                LocationId = _location1Id,
+                Qty = 100m,
+                UnitCost = 10.00m,
+                SourceDocumentType = "Test",
+                SourceDocumentId = Guid.NewGuid(),
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            await poster.PostAsync(opening, "inv-032-wb-init", "hash-inv-032-wb-init");
+        }
+        finally
+        {
+            initScope.Dispose();
+        }
+
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            transferId = await createOrchestrator.CreateTransferAsync(
+                _warehouse1Id, _location1Id,
+                _warehouse2Id, _location2Id,
+                _productId, 50m);
+            await createOrchestrator.ApproveTransferAsync(transferId);
+            await createOrchestrator.ShipTransferAsync(transferId);
+            await createOrchestrator.ReceiveTransferAsync(transferId, Guid.NewGuid(), 30m);
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to create shortfall adjustment from branch2 for branch1's transfer
+        var (branch2Scope, _, _, _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            var branch2AdjOrchestrator = branch2Scope.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                branch2AdjOrchestrator.CreateTransferShortfallAdjustmentAsync(
+                    transferId, "DAMAGED", "Wrong branch", _branch2Id));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
         }
     }
 }
