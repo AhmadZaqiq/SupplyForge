@@ -13,10 +13,12 @@ using SupplyForge.Host.Notifications;
 using SupplyForge.Host.RateLimiting;
 using SupplyForge.PlatformCore.Application.Email;
 using SupplyForge.PlatformCore.Application.Security;
+using SupplyForge.PlatformCore.Contracts.Security;
 using SupplyForge.PlatformCore.Infrastructure.Application.Auth;
 using SupplyForge.PlatformCore.Infrastructure.Application.Integrations;
 using SupplyForge.PlatformCore.Infrastructure.Application.Notifications;
 using SupplyForge.PlatformCore.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.Shared.Auditing;
 using SupplyForge.Shared.Notifications;
@@ -57,6 +59,14 @@ public static class ServiceCollectionExtensions
                 sql.MigrationsHistoryTable(
                     "__EFMigrationsHistory",
                     SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext.Schema)));
+
+        // A1-5: Inventory module DbContext (ledger). Same single connection,
+        // per-module schema history table (ADR-003).
+        services.AddDbContext<SupplyForge.Inventory.Infrastructure.Data.InventoryDbContext>(options =>
+            options.UseSqlServer(connectionString, sql =>
+                sql.MigrationsHistoryTable(
+                    "__EFMigrationsHistory",
+                    SupplyForge.Inventory.Infrastructure.Data.InventoryDbContext.Schema)));
 
         services.AddScoped<PlatformSharedServices>();
         services.AddScoped<IAuditWriter>(sp => sp.GetRequiredService<PlatformSharedServices>());
@@ -159,10 +169,35 @@ public static class ServiceCollectionExtensions
         // MD-002), next to the platform catalogue seed in Program.cs.
         services.AddScoped<SupplyForge.MasterData.Infrastructure.Data.MasterDataSeed>();
 
-        // A1-4: location deactivation guard port (MD-042).
+        // A1-5 Increment 2: atomic movement poster.
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+
+        // A1-7: transfer / adjustment / opening import orchestrators.
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.TransferOrchestrator>();
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.AdjustmentOrchestrator>();
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.OpeningImportOrchestrator>();
         // Placeholder implementation; Inventory provides real guard in A1-5.
         services.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard,
             SupplyForge.MasterData.Infrastructure.Location.DefaultLocationDeactivationGuard>();
+        // A1-5 Increment 2: warehouse branch resolver for cross-branch validation.
+        services.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
+            SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
+
+        // A1-4 Part 2 (BRN-010, Q-C/Q-D/Q-E): branch scope. The scoped holder
+        // carries the per-request scope; ICurrentBranchScope resolves to
+        // holder.Scope so every scoped service (including MasterDataDbContext)
+        // sees the current scope. The default, before the middleware sets it,
+        // is the fail-closed NoBranchScope. The request scope is resolved from
+        // the caller's UserBranchScope rows plus the company-wide rule;
+        // unauthenticated/no-rows fail closed (Q-E). The system scope exists
+        // only for seed/migration/background jobs and is never produced from
+        // HTTP. Q-C: the IsCompanyWide column on platform.User is pending owner
+        // approval (migration file only) — until then the company-wide rule is
+        // always false.
+        services.AddScoped<BranchScopeHolder>();
+        services.AddScoped<ICurrentBranchScope>(sp => sp.GetRequiredService<BranchScopeHolder>().Scope);
+        services.AddScoped<IBranchScopeProvider, BranchScopeProvider>();
+        services.AddScoped<IBranchScopeResolver, HttpBranchScopeResolver>();
 
         // ADR-003 (A0-6, extended by A1-1): the ambient session joins every
         // module DbContext on one shared connection/transaction. Host owns the
@@ -171,7 +206,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SupplyForge.Shared.Data.IDbSessionFactory>(sp => new Data.AmbientDbSessionFactory(
             sp.GetRequiredService<PlatformCoreDbContext>(),
             sp.GetRequiredService<SupplyForge.Integrations.Infrastructure.Data.IntegrationsDbContext>(),
-            sp.GetRequiredService<SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext>()));
+            sp.GetRequiredService<SupplyForge.MasterData.Infrastructure.Data.MasterDataDbContext>(),
+            sp.GetRequiredService<SupplyForge.Inventory.Infrastructure.Data.InventoryDbContext>()));
 
         // SEC-10 / ADR-004 / ADR-006: standard JWT Bearer handler, HS256 only,
         // explicit 2-minute clock skew.

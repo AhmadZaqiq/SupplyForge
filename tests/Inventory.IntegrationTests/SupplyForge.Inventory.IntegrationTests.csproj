@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.15" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Inventory\SupplyForge.Inventory\SupplyForge.Inventory.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Inventory\SupplyForge.Inventory.Infrastructure\SupplyForge.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\PlatformCore\SupplyForge.PlatformCore.Infrastructure\SupplyForge.PlatformCore.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\SupplyForge.MasterData.Infrastructure\SupplyForge.MasterData.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Host\SupplyForge.Host\SupplyForge.Host.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,322 +1,407 @@
 # SupplyForge
 
-Modular-monolith backend for the full goods lifecycle — supplier → purchase →
-receipt → stock → sale → shipment → invoice → payment → report. One company,
-three seeded branches. This is a **portfolio backend, not a certified ERP**
-(see `docs/prd/01-introduction.md`).
+Modular-monolith backend for the full goods lifecycle: supplier → purchase → receipt → stock → sale → shipment → invoice → payment → report. One company, three seeded branches. Portfolio backend, not a certified ERP.
 
-**Status:** active development — slice **A0**: increments A0-1…A0-7 done; the **A0 gate is closed** (all five PRD §11.2 items evidenced in `docs/A0-PROGRESS.md`). Slice **A1**: A1-1, A1-2, A1-3 committed; **A1-4 Part 1 committed (93b28c0)** — Warehouses and Storage Locations; next: A1-4 Part 2 after Q-E (branch scope).
+## Status
 
-Slice-by-slice progress with evidence lives in
-[`docs/A0-PROGRESS.md`](docs/A0-PROGRESS.md) and [`docs/A1-PROGRESS.md`](docs/A1-PROGRESS.md); session continuity in
-[`HANDOFF.md`](HANDOFF.md).
+**Active development — Slice A1 complete through A1-7.**
 
-## Stack
+- **A0 (Foundations):** Complete — all gates closed (docs/A0-PROGRESS.md)
+- **A1-1 … A1-4 Part 1:** Committed — Master Data foundation, product catalogue, partners, warehouses + storage locations
+- **A1-4 Part 2:** Branch scope — completed, uncommitted (awaiting owner commit)
+- **A1-5:** Inventory ledger + balances + WAC core — completed, uncommitted (awaiting owner commit)
+- **A1-6:** WAC core (scale-8, receipt/issue/transfer blends) — completed, uncommitted (awaiting owner commit)
+- **A1-7:** Documents that post movements (transfers, adjustments, opening import) — **complete, verified, uncommitted**
 
-- C# / .NET 10, ASP.NET Core Web API, EF Core 10, SQL Server 2022
-- xUnit: unit tests + integration tests against a real SQL Server, plus
-  architecture tests
-- Docker Compose (SQL Server), GitHub Actions CI, OpenAPI generated from code
+Slice-by-slice progress with evidence: [`docs/A0-PROGRESS.md`](docs/A0-PROGRESS.md) and [`docs/A1-PROGRESS.md`](docs/A1-PROGRESS.md). Session continuity: [`HANDOFF.md`](HANDOFF.md).
 
-## Architecture overview
+## Technology Stack
 
-A **modular monolith**: one deployable Host process, modules that own their
-tables. A conceptual diagram (`SF.png`) is planned but not yet in the
-repository.
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Language | C# | .NET 10 |
+| Web Framework | ASP.NET Core Web API | — |
+| ORM | EF Core | 10 |
+| Database | SQL Server | 2022 |
+| Testing | xUnit | — (unit + integration + architecture) |
+| Container | Docker Compose | SQL Server service |
+| CI | GitHub Actions | build → format → migrations → tests → container |
+| API Docs | OpenAPI | generated from code |
 
-| Area | Location | Owns |
-|---|---|---|
-| Platform Core | `src/Modules/PlatformCore/` | users, roles, permissions, branch/warehouse scope, audit, notifications, API keys, auth |
-| Integrations | `src/Modules/Integrations/` | outbox / integration-adjacent tables |
-| **Master Data** | `src/Modules/MasterData/` | **company, branches, product catalogue, partners, tax rates, payment terms, reason codes, warehouses, storage locations** |
-| Shared kernel | `src/Shared/` | cross-cutting pieces only (auditing interfaces, idempotency, sequencing, notifications contracts) |
-| Host | `src/Host/SupplyForge.Host/` | HTTP endpoints, auth wiring, DI composition, middleware |
+## Architecture
 
-Rules enforced by architecture tests (NFR-040, `tests/ArchitectureTests/`):
+SupplyForge is a **modular monolith**: one deployable Host process, with modules that own their tables and schemas. Each module follows Clean Architecture boundaries (Domain → Application ← Infrastructure), with endpoints and DI composition only in the Host.
 
-- No module reads or writes another module's tables; cross-module reads go
-  through public query contracts, writes through public commands or events
-  published to the outbox in the same transaction (MOD-1…5).
-- Only Inventory posts stock movements; only Finance owns amounts owed/paid
-  and credit exposure; Sales never reads Finance tables (MOD-9).
-- Reporting is event-only and owns no operational writes (MOD-6).
-- Per module: Domain → Application ← Infrastructure, endpoints in Host only;
-  EF entities are never exposed through the API.
+```
+API (Host) → Application (module) ← Domain (module) ← Infrastructure (module)
+```
 
-Authentication (ADR-006/009): interactive users send
-`Authorization: Bearer <access-token>` (JWT, ADR-004); Integration Clients
-send the frozen `X-Api-Key: <secret>` header. Authorization is **deny by
-default**: every request re-authorizes (SEC-10), endpoints declare named
-`perm:*` policies (PLT-022), and unauthenticated/under-permitted callers get
-401/403 exactly (SEC-13).
+### Module Boundaries and Ownership
 
-## Implemented functionality
+| Module | Schema | Owns |
+|--------|--------|------|
+| Platform Core | `platform` | users, roles, permissions, branch/warehouse scope, audit, notifications, API keys, auth |
+| Integrations | `integrations` | outbox / integration-adjacent tables |
+| Master Data | `master_data` | company, branches, product catalogue, partners, tax rates, payment terms, reason codes, warehouses, storage locations |
+| Inventory | `inventory` | stock movements, stock balances, product cost (WAC), transfers, adjustments, opening imports |
+| Shared kernel | cross-cutting | auditing interfaces, idempotency, sequencing, notifications contracts |
 
-### Slice A0 — Foundations (committed, all gates closed)
+### Key Architectural Rules (enforced by architecture tests)
 
-| Increment | Delivered |
-|---|---|
-| M0-0…M0-5 | Solution, Docker Compose (SQL Server), per-module DbContexts + initial migrations, platform services, Host skeleton, smoke tests |
-| A0-1 | JWT access tokens (ADR-004): standard JwtBearer handler, HS256, 15-min TTL, issuer/audience/skew validation |
-| A0-2 / A0-2b | Rate limiting on auth endpoints (SEC-04, PLT-012) plus in-step defect fixes (bounded limiter cardinality, bounded login-body buffering) |
-| A0-3 | Permission catalogue, role bundles, deny-default endpoint authorization (PLT-020/022), secure create-user bootstrap under `sp_getapplock`, complete HTTP 401/403 matrix (SEC-13) |
-| A0-4 | Branch-isolation HTTP matrix (BRN-011/013/014), audit-log redaction (PLT-044), OpenAPI dual-auth schemes (INT-052). PLT-013 (password reset) deferred — needs migration approval |
-| A0-5 | GitHub Actions CI (build → format → migrations → tests → container build), `Dockerfile`, this README (NFR-061/062) |
-| A0-6 | ADR-003 ambient transaction: `IDbSession` sharing one `DbConnection`/`DbTransaction` across module DbContexts, session-then-email notification raise (MOD-TXN-02), in-app notification read API, HTTP notification round-trip, `AuthService` create-user on the ambient session |
-| A0-7 | Notification delivery state (ADR-008 legs 4–5): `Email` config (`Fake`/`Disabled`, validated at startup), delivery columns + approved migration, inline post-commit attempt recording Sent/Pending/Failed, retry worker with exponential backoff + jitter → dead-letter `Failed` (PLT-052, INT-003), visible pending when email is off (PLT-051), audited TD-2 manual mark-sent endpoint, delivery status on the read API |
-| A0-8 | Hardening: SEC-20 startup guard fails outside Development, PLT-073b `NextAsync` via compare-and-swap, SEC-05/PLT-012 password verified before `user_inactive`/`locked_out`, PLT-011 refresh returns real `userId`, OUT-01/OUT-06 `IOutbox` correlationId + active-transaction guard + `IInbox` fixed, MD-004 README accuracy |
+- **No module reads or writes another module's tables.** Cross-module reads go through public query contracts; writes go through public commands or events published to the outbox in the same transaction (MOD-1…MOD-10).
+- **Only Inventory posts stock movements.** Only Finance owns amounts owed/paid and credit exposure. Sales never reads Finance tables (MOD-9).
+- **Reporting is event-only and owns no operational writes** (MOD-6).
+- **EF entities are never exposed through the API.** Request/response DTOs only.
+- **Dependencies point inward only.** No circular references.
 
-### Slice A1 — Master Data + Inventory Core
+### Database Schema Organization
 
-| Increment | Delivered | Status |
-|---|---|---|
-| A1-1 | `MasterData` module per ADR-001, `master_data` schema + company singleton + 3-branch seed (MD-001/MD-002), ambient session generalised 2 → N contexts (ADR-003), MOD-10 arch-test extension | **Committed** (`704b665`) |
-| A1-2 | Product catalogue — `Product`/`ProductStatus`/`Category`/`UnitOfMeasure`/`UnitOfMeasureConversion` (MD-010…MD-013), zero-cascade FKs, CHECK `Factor > 0` | **Committed** (`704b665`) |
-| A1-3 | Partners + shared master — `Supplier`/`Customer` + statuses, `CreditLimit` decimal(18,2) NOT NULL default 0 (CHECK ≥ 0), addresses with default-shipping/billing filtered unique indexes, `TaxRate` (Rate decimal(9,6), CHECK 0–100), `PaymentTerm` (DueDays CHECK ≥ 0), `ReasonCode` global list (MD-020, MD-030, MD-031, MD-050, PLT-075) | **Committed** (`708d171`) |
-| **A1-4 Part 1** | **Warehouses + Storage Locations** — `Warehouse` (branch-owned, `Code` unique company-wide non-filtered), `StorageLocation` (7 location types per D-16: Receiving, Storage, Picking, Shipping, Returns, Quarantine, Blocked), `LocationType` enum, port `ILocationDeactivationGuard` + placeholder implementation, migration file `20261124181017_A1WarehousesLocations`, 7 unit + 12 integration tests on throwaway DBs | **Committed** (`93b28c0`) |
-| A1-4 Part 2 | Branch scope via `ICurrentBranchScope` + EF global query filters on `MasterDataDbContext` (BRN-001…014) | **Planned** (blocked on Q-E: null scope behavior) |
+Each module owns its schema. Cross-module references are plain `Guid` columns (DM-4) with no EF foreign-key constraints across module schemas. Application-level validation enforces referential integrity.
 
-### Master Data capabilities implemented so far
+## Implemented Functionality (through A1-7)
 
-- **Company** — singleton legal entity with profile fields
-- **Branches** — 3 seeded branches (placeholder codes/names per Q-3)
-- **Product catalogue** — products with code, status lifecycle (Active/Inactive/Archived), category hierarchy, UoM with conversions
+### Master Data and Organizational Structure
+
+- **Company** — singleton legal entity with profile fields (base currency, timezone, default language)
+- **Branches** — three seeded branches with unique codes
+- **Product catalogue** — products with code, name, description, status lifecycle (Active/Inactive/Archived), category hierarchy, unit of measure with conversions
 - **Partners** — suppliers and customers with statuses, credit limits, addresses (default shipping/billing)
 - **Shared lookups** — tax rates, payment terms, reason codes
-- **Warehouses & Storage Locations** — branch-owned warehouses, 7 location types, block location (no deactivate while holding stock)
+- **Warehouses** — branch-owned, unique company-wide code
+- **Storage Locations** — seven location types (Receiving, Storage, Picking, Shipping, Returns, Quarantine, Blocked), warehouse-owned
 
-## Implemented but not yet applied database migrations
+### Branch and Warehouse Scope
 
-| Migration | Module | Tables | Status |
-|---|---|---|---|
-| `20261124181017_A1WarehousesLocations` | MasterData | `Warehouse`, `StorageLocation` | **File only** — `dotnet ef database update` requires explicit owner approval |
+- `ICurrentBranchScope` resolves per-request branch access (branch IDs + company-wide flag + `CanAccess(Guid)`)
+- Fail-closed by default: a request with no accessible branch sees nothing
+- System scope (for seed/migration/background jobs) is set only by the Host, never from HTTP
+- Branch validation is enforced at the Inventory layer via `IWarehouseBranchResolver` (Inventory references MasterData.Contracts only — no cross-module implementation dependency)
 
-CI applies all migrations to its own ephemeral database automatically.
+### Inventory: Stock Movements and Posting
 
-## Planned functionality (not implemented)
+- **StockMovement** — immutable append-only ledger (INSERT-only after creation; INV-010/012)
+- **Qty sign convention:** Issue/TransferOut/AdjustmentOut = negative; Receipt/TransferIn/AdjustmentIn/OpeningBalance = positive
+- **StockBalance** — unique on (WarehouseId, ProductId); concurrency protected with HOLDLOCK/UPDLOCK
+- **ProductCost** — WAC cost bucket per (ProductId, WarehouseId), scale-8 rounding
+- **StockMovementPoster** — atomic posting inside the ambient session: HOLDLOCK on StockBalance + ProductCost, WAC application, idempotency claim/complete, no `FailAsync` (rollback via ambient transaction)
+- **Negative stock protection** — poster rejects issues/transfers/adjustments that would drive on-hand below zero (INV-NEG)
 
-### Slice A1 (continued)
-- A1-5: Inventory ledger + balances (`StockMovement`, `StockBalance`, reconciliation)
-- A1-6: WAC core (bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers)
-- A1-7: Documents that post movements (adjustments, transfers, opening import)
-- A1-8: Availability + replenishment + returns guard
-- A1-9: Admin user lifecycle (role/branch assignment, last-admin protection)
+### Warehouse Transfers and Partial Receiving
 
-### Slice A2 — Buy & Receive
-- Procurement (purchase orders, receipt processing)
-- Inbound (goods receipt, inspection)
+- **Transfer document lifecycle:** Draft → Approved → (same-warehouse: Closed atomically) / (inter-warehouse: In Transit → Received → Closed)
+- **Same-warehouse location move:** TransferOut + TransferIn posted atomically in one ambient transaction → Closed
+- **Inter-warehouse:** Shipping (TransferOut → In Transit) and Receiving (TransferIn → ReceivedQty increment) are separate ambient transactions per leg/receipt
+- **Source WAC preservation:** TransferOut mutates `movement.UnitCost` in place; each partial TransferIn reads the original TransferOut's UnitCost — every partial receipt uses the same source WAC
+- **Concurrent receive serialization:** `WITH (UPDLOCK, ROWLOCK, HOLDLOCK)` on the Transfer row serializes concurrent receives; ShippedQty/ReceivedQty re-read inside the lock
+- **Over-receipt prevention:** ReceiveQty cannot exceed remaining shipped quantity
+- **Transfer shortfall reconciliation (INV-032):** transfer-shortfall Adjustment with `SourceDocumentType="Transfer"`, `SourceDocumentId=TransferId` — audit/documentation only, creates no StockMovements, Status=Posted; duplicate prevention via idempotency claim
 
-### Slice A3 — Sell & Reserve
-- Sales (quotes, orders, reservations)
+### Adjustments (INV-040)
 
-### Slice A4 — Fulfil & Dispatch
-- Fulfillment (pick/pack)
-- Shipping (dispatch, shipment tracking)
+- **Adjustment lifecycle:** Draft → PendingApproval → Approved → Posted → Rejected
+- **Normal adjustment:** posts AdjustmentIn/AdjustmentOut movements via the poster; negative-stock guard enforced
+- **Transfer-shortfall adjustment:** audit-only, Status=Posted, no movements
+- **Reject** permitted from Draft, PendingApproval, or Approved; not from Posted or Rejected
+- **INV-041** (threshold approval, creator cannot approve) is blocked on B1 and not implemented
 
-### Slice B1+ — Money & Reporting
-- Finance (invoices, payments, AP/AR)
-- Reporting (event-sourced insights)
+### Opening Imports (INV-014)
 
-## Important architectural and engineering decisions
+- **OpeningImport lifecycle:** Draft → Validated (dry-run, no movements) → Posted → Rejected
+- **Dry-run validation:** validates qty > 0, LocationId present, warehouse exists and is branch-accessible; no StockMovements posted
+- **Posting:** creates OpeningBalance movements via the poster; idempotency key per line (`opening:{ImportId}:line:{Index}`)
+- **LocationId required** because the poster locks StockBalance by (ProductId, WarehouseId, LocationId)
 
-| ID | Decision |
-|---|---|
-| ADR-001 | Modular monolith, leaf contract assemblies per module, single solution |
-| ADR-002 | Event versioning, consumer-owned DTOs, no broker |
-| ADR-003 | Ambient transaction + outbox in same TXN, per-module DbContexts sharing one connection |
-| ADR-004 | Identity: PBKDF2, JWT access (15 min), refresh rotation (14 days), lockout, scope freshness 5 min |
-| ADR-005 | Document numbering/sequences, gaps allowed |
-| ADR-006 | API surface: `/api/v1`, ProblemDetails, pagination, optimistic concurrency, idempotency keys |
-| ADR-008 | Notifications + email fake (TD-2: manual mark-sent, email optional in P1) |
-| ADR-009 | API keys with scopes, `X-Api-Key` header frozen |
-| PA-18 (DM-3) | **Guid surrogate keys** are the project key style (owner accepted 2026-11-24) |
-| MOD-1/1a | Modules own tables; cross-module via contracts/events; no cross-schema FKs |
-| BRN-010 | Users assigned one+ branches or company-wide scope flag (`IsCompanyWide` on `platform.User`) |
-| Q-A…Q-D | A1-4 decisions: `Warehouse.Code` unique company-wide, `StorageLocation` entity name, `IsCompanyWide` Part 2 only, `ICurrentBranchScope` = BranchIds + IsCompanyWide + CanAccess |
-| Q-E | **Open**: null branch scope fails closed for requests; seed/migration retain access |
+### Weighted Average Cost (WAC)
 
-## Current implementation progress
+- Bucket = ProductId + WarehouseId
+- Opening blend, receipt blend, issue blend, transfer blend
+- Scale-8 rounding, no negative average
+- WAC-01…06, WAC-08…11 implemented; WAC-07 (reversal eligibility) blocked on OD-03
 
-| Area | Status |
-|---|---|
-| **A0 gate** | **Closed** — all five PRD §11.2 items evidenced |
-| **A1-1, A1-2, A1-3** | **Committed** — 32 tables across 3 schemas (14 platform, 15 master_data, 3 integrations) |
-| **A1-4 Part 1** | **Committed** (`93b28c0`) — Warehouses + Locations entities, migration file, 19 tests |
-| **A1-4 Part 2** | **Planned** — branch scope (blocked on Q-E) |
-| **A1-5…A1-9** | **Planned** — per `docs/A1-PROGRESS.md` §1 |
-| **Owner decisions open** | ADR-007 (approval engine), ADR-011 (logo upload), OD-03/TD-5 (WAC reversal), PLT-013 (password reset migration), Q-5 (email in P1), Q7 (MD-003 placement) |
+### Transaction Handling
 
-## Repository maintenance improvements (this commit)
+- **AmbientDbSession** — one shared `SqlConnection` + `DbTransaction`, enlists every joined DbContext via `SetDbConnection` + `UseTransactionAsync`
+- All joined contexts share the same connection string (one SQL Server, per-module schemas)
+- Commit once; rollback on failure
+- `InventoryDbContext.SaveChangesAsync` rejects Modified/Deleted on `StockMovement` (INSERT-only)
 
-- **.gitignore** — added `**/bin/` and `**/obj/` patterns for build artifacts
-- **Script documentation** — `scripts/README.md` documents all three scripts (`quota-status.sh`, `checkpoint.sh`, `checkpoint-selftest.sh`) with arguments, behavior, prerequisites, and exit codes
-- **Plan lifecycle** — `.kilo/plans/README.md` documents plan states (Active, Superseded, Archived) and naming convention
-- **Pre-quota checkpoint** — linked from README and HANDOFF; guarded procedure protects work when OpenCode usage limit approaches
+### Idempotency
 
-## Repository map
+- `IIdempotencyStore.TryClaimAsync` returns Claimed/AlreadyCompleted/PayloadMismatch/InProgress
+- `CompleteAsync` marks completed; failed claims roll back with ambient transaction (no `FailAsync`)
+- Idempotency keys include document type, document ID, and line index where applicable
 
-| Path | What |
-|---|---|
-| `docs/prd/` | Requirements — authority for behavior; start at `docs/prd/INDEX.md` |
-| `ADR/`, `docs/Decision Register.md` | Accepted decisions |
-| `docs/A0-PROGRESS.md` | Increment log: what was done, evidence, defects |
-| `docs/A1-PROGRESS.md` | A1 increment log: plan, owner blockers, evidence |
-| `HANDOFF.md` / `docs/HANDOFF.md` | Current-state handoff (kept byte-identical) |
-| `AGENTS.md` | Working agreements for AI-assisted development |
-| `src/Modules/` | Built: PlatformCore, Integrations, MasterData. Planned, not built: Inventory (A1), Procurement (A2), Inbound (A2), Sales (A3), Fulfillment (A4), Shipping (A4), Finance (B1), Reporting (B3) |
-| `.github/workflows/ci.yml` | CI definition (NFR-061) |
-| `scripts/` | Quota and checkpoint tooling (see `scripts/README.md`) |
-| `.kilo/plans/` | Execution plans (not authoritative; see `.kilo/plans/README.md`) |
+### Concurrency Protection
 
-## Runbook
+- `StockBalance` locked with `HOLDLOCK` on (ProductId, WarehouseId, LocationId)
+- `ProductCost` locked with `HOLDLOCK/UPDLOCK`
+- Transfer row locked with `WITH (UPDLOCK, ROWLOCK, HOLDLOCK)` during receive
+- Concurrent balance inserts serialized; retry allows all to succeed
+
+### Auditability
+
+- `RowVersion` (timestamp) concurrency tokens on StockBalance and document entities
+- CreatedAt/UpdatedAt on all document entities via `TimeProvider`
+- Audit log entries for platform operations
+
+## Project Structure
+
+```
+SupplyForge/
+├── src/
+│   ├── Host/SupplyForge.Host/          # HTTP endpoints, auth wiring, DI composition, middleware
+│   ├── Modules/
+│   │   ├── PlatformCore/               # users, roles, permissions, scope, audit, notifications
+│   │   ├── Integrations/               # outbox / integration tables
+│   │   ├── MasterData/                 # company, branches, products, partners, warehouses, locations
+│   │   └── Inventory/                  # stock movements, balances, WAC, transfers, adjustments, opening imports
+│   └── Shared/                         # cross-cutting contracts (auditing, idempotency, sequencing)
+├── tests/
+│   ├── ArchitectureTests/              # dependency direction, module boundary rules
+│   ├── PlatformCore.UnitTests/
+│   ├── PlatformCore.IntegrationTests/
+│   ├── MasterData.UnitTests/
+│   ├── MasterData.IntegrationTests/
+│   ├── Inventory.UnitTests/
+│   └── Inventory.IntegrationTests/     # throwaway SQL Server databases per test run
+├── docs/
+│   ├── prd/                            # product requirements (INDEX.md → navigation)
+│   ├── A0-PROGRESS.md                  # increment log (slice A0)
+│   ├── A1-PROGRESS.md                  # increment log (slice A1)
+│   ├── HANDOFF.md                      # session continuity
+│   ├── Decision Register.md            # accepted owner decisions
+│   └── DATABASE-GUIDE.md               # verified database structure
+├── ADR/                                # accepted architecture decisions (001–006, 008, 009)
+├── .kilo/plans/                        # execution plans (not authoritative)
+├── scripts/                            # quota and checkpoint tooling
+├── README.md                           # this file
+├── AGENTS.md                           # AI-assisted development agreements
+├── HANDOFF.md                          # root handoff (byte-identical to docs/HANDOFF.md)
+└── docker-compose.yml                  # SQL Server service
+```
+
+## Business Workflows
+
+### Inventory Movements
+
+Stock movements are append-only. The `StockMovementPoster` posts movements inside an ambient transaction: it acquires `HOLDLOCK` on `StockBalance` and `ProductCost`, applies WAC logic, and saves — all inside the ambient transaction. Movements are immutable after creation (INV-010/012).
+
+### Transfer Lifecycle
+
+1. **Create** — Draft transfer between two locations (same or different warehouse). Branch isolation validated: both warehouses must be in an accessible branch. Inter-branch transfers are rejected until B1 (BRN-021).
+2. **Approve** — Draft → Approved. No movements posted.
+3. **Ship** — Approved → In Transit (inter-warehouse) or Closed (same-warehouse, both legs posted atomically). TransferOut posts at source WAC; the poster mutates `movement.UnitCost` in place.
+4. **Receive** — In Transit → Received → Closed. Each partial receive posts TransferIn at the original TransferOut's UnitCost and increments `ReceivedQty`. Concurrent receives are serialized by Transfer-row HOLDLOCK. Over-receipt is rejected.
+5. **Close** — requires `ReceivedQty >= ShippedQty` or a posted transfer-shortfall adjustment (INV-032). Cancelled or already-Closed transfers cannot be closed.
+6. **Cancel** — Draft or Approved → Cancelled. No movements posted.
+
+### Partial Receiving
+
+Multiple partial receives are supported for inter-warehouse transfers. Each receive:
+1. Locks the Transfer row (HOLDLOCK)
+2. Checks idempotency pre-check (if a TransferIn with this SourceDocumentId exists, skip posting and skip ReceivedQty increment)
+3. Validates remaining quantity
+4. Posts TransferIn at source WAC
+5. Increments ReceivedQty, advances status to Received/Closed
+
+### Transfer Shortfall Reconciliation (INV-032)
+
+When a transfer is partially received and cannot be fully completed, a transfer-shortfall Adjustment is created:
+- `SourceDocumentType = "Transfer"`, `SourceDocumentId = TransferId`
+- Status = Posted (audit-only)
+- Creates **no** StockMovements
+- Duplicate prevention: a second shortfall adjustment for the same TransferId is rejected
+- Once posted, the transfer can be closed even with unreconciled shortfall
+
+### Adjustments
+
+Normal adjustments (INV-040):
+1. Create Draft with lines (qty + movement type + product + warehouse + location)
+2. Submit for approval (Draft → PendingApproval)
+3. Approve (Draft/PendingApproval → Approved)
+4. Post (Approved → Posted): posts AdjustmentIn/AdjustmentOut movements via the poster; negative-stock guard enforced
+5. Reject (any pre-posted state → Rejected)
+
+### Opening Imports (INV-014)
+
+1. Create Draft with lines (product, warehouse, location, qty, unit cost)
+2. Validate (Draft → Validated): dry-run, no movements; validates qty > 0, LocationId, warehouse existence, branch access
+3. Post (Validated → Posted): creates OpeningBalance movements via the poster; idempotent per line
+4. Reject (any pre-posted state → Rejected)
+
+### Branch Isolation
+
+- Every inventory table carries `WarehouseId` directly
+- Inventory has no Warehouse entity; branch resolution is transitive via `IWarehouseBranchResolver`
+- `StockMovementPoster` validates branch access before posting (fail-closed per BRN-011…014)
+- Cross-module references are plain `Guid` columns, no EF FK across module schemas
+
+### Negative Stock Protection
+
+- The poster rejects any movement that would drive `StockBalance.QtyOnHand` below zero
+- Applies to Issue, TransferOut, AdjustmentOut
+- Verified by `INV_NEG_NegativeOnHand_IsRejected_ByPoster`
+
+### Idempotency and Transaction Boundaries
+
+- Every document post uses an idempotency key (document type + document ID + optional line index)
+- `TryClaimAsync` joins the shared `SqlTransaction`; on ambient transaction rollback, the claim, movement, and balance all disappear (verified by `IDEM_06`)
+- `CompleteAsync` marks the claim completed
+- No `FailAsync` — failures roll back via the ambient transaction
+
+## Development Setup
 
 ### Prerequisites
 
-.NET 10 SDK, Docker with Compose.
+- .NET 10 SDK
+- Docker with Compose (for SQL Server)
 
-### 1. Start SQL Server
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/AhmadZaqiq/SupplyForge.git
+cd SupplyForge
+```
+
+### 2. Configuration
 
 ```bash
 cp .env.example .env   # first time; adjust MSSQL_SA_PASSWORD if needed
+```
+
+The `.env` file is gitignored and contains only local development secrets. Never commit it.
+
+### 3. Start SQL Server
+
+```bash
 docker compose up -d sqlserver
 ```
 
-### 2. Run the host
+### 4. Run the Host
 
 ```bash
 dotnet run --project src/Host/SupplyForge.Host
 ```
 
-The host seeds the permission catalogue and system role bundles at startup
-(idempotent; no migration involved).
+The host seeds the permission catalogue and system role bundles at startup (idempotent; no migration involved). The Master Data seed skips with a warning when `master_data` schema is absent, so a pre-A1 database still boots.
 
-### 3. First-run sign-in
+### 5. Migrations (owner approval required)
 
-No users exist on a fresh database. `POST /api/v1/users` is open **only while
-the Users table is empty** (bootstrap window); afterwards it requires an
-authenticated caller with `platform.user.manage`:
+Migrations change module-owned schema and require owner approval before running. Migration files exist for:
+- `20261124181017_A1WarehousesLocations` (Master Data: Warehouse + StorageLocation)
+- `20261125171326_A1InventoryLedger` (Inventory: StockMovement + StockBalance + ProductCost)
+- `20261126004151_A1TransferOrchestration` (Inventory: Transfer + Adjustment + OpeningImport)
+
+All are **file only** — `dotnet ef database update` is never run on the dev database. CI applies migrations to its own ephemeral database.
+
+When approved:
+```bash
+dotnet ef database update --project <module> --startup-project src/Host/SupplyForge.Host
+```
+
+### 6. Tests and Format
 
 ```bash
-# create the first user (bootstrap)
-curl -X POST http://localhost:5009/api/v1/users \
-  -H 'Content-Type: application/json' \
-  -d '{"userName":"admin","email":"admin@example.test","password":"<strong-pw>","displayName":"Admin"}'
-
-# sign in
-curl -X POST http://localhost:5009/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"userName":"admin","password":"<strong-pw>"}'
-# → { "userId", "accessToken", "refreshToken", "expiresAt" }
+dotnet build                          # 0 errors, 0 warnings
+dotnet test                           # unit + integration + architecture tests
+dotnet format --verify-no-changes     # formatting check
 ```
 
-Refresh tokens rotate on use (PLT-011). Login/refresh are rate-limited per IP
-and per account (SEC-04/PLT-012).
+Integration tests for Inventory create and drop throwaway SQL Server databases per test run. PlatformCore integration tests connect to the shared dev database.
 
-**Known gap (MD-004, slice A1):** role/branch assignment is not implemented
-yet, so the first user has **no roles**. Login succeeds, but
-permission-gated calls fail with 403 — including `POST /api/v1/users`, which
-requires `platform.user.manage`. Roles land with slice A1 (MD-004).
+## Testing and Verification
 
-### 4. Configuration and secrets
+### Test Strategy
 
-`appsettings.json` carries **development placeholders only** (SEC-20). Real
-secrets arrive via environment variables, e.g.
-`ConnectionStrings__SupplyForge`, `Auth__AccessTokenSecret`,
-`RateLimit__AuthIpLimit`.
+| Test Type | Project | Database | Requirement IDs in names |
+|-----------|---------|----------|-------------------------|
+| Unit | `tests/Inventory.UnitTests/` | None (pure domain logic) | Yes (NFR-051) |
+| Integration | `tests/Inventory.IntegrationTests/` | Throwaway SQL Server per run | Yes (NFR-051) |
+| Architecture | `tests/ArchitectureTests/` | None | Dependency direction rules |
 
-### 5. Migrations (ask first)
+### Verified Results (A1-7, 2026-11-26)
 
-Migrations change module-owned schema and require owner approval before
-running (project rule). When approved:
+| Check | Result |
+|-------|--------|
+| `dotnet build` | 0 errors, 0 warnings |
+| Inventory UnitTests | 45/45 passed |
+| Inventory IntegrationTests (new A1-7 classes) | 32/32 passed |
+| Inventory IntegrationTests (existing classes) | 40/40 passed |
+| ArchitectureTests | 20/20 passed |
+| `dotnet format --verify-no-changes` | Clean |
+| Migrations applied to dev DB | None (file only) |
 
-```bash
-dotnet ef database update \
-  --project src/Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure \
-  --startup-project src/Host/SupplyForge.Host
-dotnet ef database update \
-  --project src/Modules/Integrations/SupplyForge.Integrations.Infrastructure \
-  --startup-project src/Host/SupplyForge.Host
-dotnet ef migrations add <Name> \
-  --project src/Modules/MasterData/SupplyForge.MasterData.Infrastructure \
-  --startup-project src/Host/SupplyForge.Host   # migration **file only**; `database update` only with owner approval
-```
+> Note: Running all integration test projects in parallel can cause SQL Server `CREATE DATABASE` contention (documented D0 finding in HANDOFF.md §12). Run classes individually or sequentially for reliable results.
 
-CI applies all three to its own ephemeral database automatically.
+## Project Status
 
-### 6. Tests and format
+### Implemented (through A1-7)
 
-```bash
-dotnet test    # needs the compose SQL Server running (shared dev database for PlatformCore; throwaway databases for MasterData A1 integration tests)
-dotnet format --verify-no-changes
-```
+All functionality listed in the "Implemented Functionality" section above is complete and verified.
 
-`dotnet test` runs architecture tests (NFR-040), unit tests, and integration
-tests against real SQL Server (NFR-050). PlatformCore integration tests connect
-to the shared dev database; MasterData A1 integration tests create and drop
-throwaway databases per test run. If you change the dev password, update the
-test connection strings too.
+### Incomplete / Blocked
 
-### 7. Pre-quota checkpoint
+| Item | Blocker | Status |
+|------|---------|--------|
+| INV-041 (adjustment threshold approval) | B1 — approval engine (ADR-007 not drafted) | Blocked |
+| SEC-40 (logo upload) | B2 — ADR-011 not drafted | Blocked |
+| WAC-07 (reversal eligibility) | B3 — OD-03 open | Blocked |
+| PLT-013 (password reset migration) | Owner migration approval required | Blocked |
+| MD-003 (Employee directory) | Q7 — placement awaiting owner decision | Not scheduled |
+| HTTP endpoints for Inventory | PLT-022 — no permission matrix exists | Not implemented (domain + infrastructure + tests only) |
+| Branch scope (A1-4 Part 2) | Completed, uncommitted | Awaiting owner commit |
+| Inventory ledger (A1-5) | Completed, uncommitted | Awaiting owner commit |
+| WAC core (A1-6) | Completed, uncommitted | Awaiting owner commit |
+| Transfer orchestration (A1-7) | Completed, verified, uncommitted | Awaiting owner commit |
 
-See [`docs/pre-quota-checkpoint.md`](docs/pre-quota-checkpoint.md) for the
-guarded checkpoint procedure (`scripts/quota-status.sh`, `scripts/checkpoint.sh`)
-that protects work when the OpenCode usage limit approaches.
+### Future Roadmap (not implemented)
 
-### Operations note: rate limiting
+- A1-8: Availability + replenishment + returns guard
+- A1-9: Admin user lifecycle (role/branch assignment, last-admin protection)
+- A2: Buy & Receive (procurement, goods receipt)
+- A3: Sell & Reserve (sales quotes, orders, reservations)
+- A4: Fulfil & Dispatch (pick/pack, shipping)
+- B1+: Finance (invoices, payments, AP/AR) and Reporting
 
-Rate-limit buckets are in-memory **per instance** (MOD-8: no Redis). Behind
-multiple instances the effective limit multiplies; database lockout after
-repeated failures is the cross-instance brake (PLT-012).
+## Documentation
 
-## Generated OpenAPI (INT-052, NFR-062)
+| Document | Path | Purpose |
+|----------|------|---------|
+| Requirements | `docs/prd/INDEX.md` | Navigation to all PRD sections |
+| Decisions | `ADR/`, `docs/Decision Register.md` | Accepted architecture decisions and owner decisions |
+| Progress (A0) | `docs/A0-PROGRESS.md` | Slice A0 increment log with evidence |
+| Progress (A1) | `docs/A1-PROGRESS.md` | Slice A1 plan, blockers, evidence |
+| Handoff | `HANDOFF.md`, `docs/HANDOFF.md` | Session continuity (byte-identical) |
+| Database | `docs/DATABASE-GUIDE.md` | Verified schema structure, ER diagrams |
+| AI Agreements | `AGENTS.md` | Working agreements for AI-assisted development |
+| CI | `.github/workflows/ci.yml` | Build → format → migrations → tests → container |
 
-The OpenAPI document is generated from code. In the **Development**
-environment it is served at:
+## Security Considerations
 
-```
-GET http://localhost:5009/openapi/v1.json
-```
+- JWT Bearer authentication (access tokens, 15-min TTL, HS256)
+- API keys via `X-Api-Key` header for integration clients
+- Authorization is **deny by default**: every request re-authorizes
+- Endpoints declare named `perm:*` policies
+- Unauthenticated/under-permitted callers get 401/403
+- SEC-20: Production startup fails fast on placeholder secrets
+- Rate limiting on auth endpoints (per IP and per account)
+- No secrets, tokens, or passwords are hardcoded or logged
+- `.env` is gitignored; real secrets arrive via environment variables
 
-It documents both auth schemes (`Bearer` for interactive users,
-`X-Api-Key` for Integration Clients — ADR-006/009), per-endpoint security
-requirements derived from endpoint authorization metadata, and the error
-problem-details shape.
+## Contribution Guidelines
 
-## Docker image (NFR-061)
+1. Read `docs/HANDOFF.md` and `AGENTS.md` before starting work
+2. Follow the reading protocol: PRD INDEX → Core set → slice files → one requirement at a time
+3. Put requirement IDs in test names (NFR-051) and commit/PR titles
+4. Run `dotnet build`, `dotnet test`, and `dotnet format --verify-no-changes` after changes
+5. Never commit, push, or deploy without explicit owner approval
+6. Do not invent APIs, files, requirements, or results — ask when uncertain
+7. Preserve existing uncommitted work; check `git status` before editing
 
-```bash
-docker build -t supplyforge-host .
-docker run -p 8080:8080 \
-  -e "ConnectionStrings__SupplyForge=Server=<host>,1433;Database=SupplyForge;User Id=sa;Password=<pw>;TrustServerCertificate=True;Encrypt=True" \
-  -e "Auth__AccessTokenSecret=<32+ byte secret>" \
-  supplyforge-host
-```
+## License
 
-Only build arguments are code; configuration (connection strings, JWT
-settings, limits) is injected at run time, never baked into the image. The
-image runs as **Production** by default, so `Auth__AccessTokenSecret` must be
-a real ≥32-byte secret — startup fails fast on the repository placeholder
-(SEC-20).
+No license file exists in this repository. This is a portfolio project, not a certified ERP system.
 
-## CI (NFR-061)
+## Disclaimer
 
-Every PR runs `.github/workflows/ci.yml`: build → format check → migrations
-against an ephemeral SQL Server service container → full test suite
-(including architecture tests) → container build.
-
-## Documentation pointers
-
-- Requirements: [`docs/prd/INDEX.md`](docs/prd/INDEX.md) (navigation; part
-  files win over the index)
-- Decisions: [`ADR/`](ADR/), [`docs/Decision Register.md`](docs/Decision%20Register.md)
-- Progress: [`docs/A0-PROGRESS.md`](docs/A0-PROGRESS.md), [`docs/A1-PROGRESS.md`](docs/A1-PROGRESS.md)
-- Handoff: [`HANDOFF.md`](HANDOFF.md), [`docs/HANDOFF.md`](docs/HANDOFF.md) (byte-identical)
-- Engineering agreements: [`AGENTS.md`](AGENTS.md)
-
-## Latest verified build and test results
-
-**Owner-reported (2026-11-24):**
-- `dotnet build` — 0 errors / 0 warnings
-- `dotnet test` — **249/249** (17 architecture + 68 PlatformCore unit + 24 MasterData unit + 92 PlatformCore integration + 48 MasterData integration), two consecutive runs
-- `dotnet format --verify-no-changes` — clean
-- Migration `20261124181017_A1WarehousesLocations` — created, **NOT applied**
+SupplyForge is a portfolio backend demonstrating modular-monolith design patterns. It is **not** a certified ERP system and is not intended for production use without thorough security review, testing, and compliance validation.

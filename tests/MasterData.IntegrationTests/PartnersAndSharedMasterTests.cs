@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 namespace SupplyForge.MasterData.IntegrationTests;
 
@@ -22,13 +23,13 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.Suppliers.Add(NewSupplier("SUP-1001", SupplierStatus.Blocked));
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.Suppliers.SingleAsync(s => s.Code == "SUP-1001");
 
             Assert.Equal("SUP-1001", loaded.Code);
@@ -53,7 +54,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.Suppliers.Add(NewSupplier("SUP-DUP"));
@@ -62,7 +63,7 @@ public class PartnersAndSharedMasterTests
             db.Suppliers.Add(NewSupplier("SUP-DUP"));
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.Suppliers.CountAsync(s => s.Code == "SUP-DUP"));
         }
         finally
@@ -80,7 +81,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             // CreditLimit is deliberately not set: the entity default and the
@@ -88,7 +89,7 @@ public class PartnersAndSharedMasterTests
             db.Customers.Add(NewCustomer("CUS-2001"));
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.Customers.SingleAsync(c => c.Code == "CUS-2001");
             Assert.Equal(0m, loaded.CreditLimit);
             Assert.Equal(CustomerStatus.Active, loaded.Status);
@@ -116,7 +117,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.Customers.Add(NewCustomer("CUS-DUP"));
@@ -125,7 +126,7 @@ public class PartnersAndSharedMasterTests
             db.Customers.Add(NewCustomer("CUS-DUP"));
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.Customers.CountAsync(c => c.Code == "CUS-DUP"));
         }
         finally
@@ -143,13 +144,13 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.Customers.Add(NewCustomer("CUS-NEG", creditLimit: -1m));
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(0, await check.Customers.CountAsync(c => c.Code == "CUS-NEG"));
         }
         finally
@@ -165,7 +166,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var supplier = NewSupplier("SUP-ADDR");
@@ -188,7 +189,7 @@ public class PartnersAndSharedMasterTests
             });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.SupplierAddresses.SingleAsync();
             Assert.Equal(supplier.Id, loaded.SupplierId);
             Assert.Equal("12 Industrial St", loaded.Line1);
@@ -215,7 +216,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var supplier = NewSupplier("SUP-FLT");
@@ -243,7 +244,7 @@ public class PartnersAndSharedMasterTests
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
             db.ChangeTracker.Clear();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(4, await check.SupplierAddresses.CountAsync(a => a.SupplierId == supplier.Id));
             Assert.Equal(1, await check.SupplierAddresses.CountAsync(a => a.SupplierId == supplier.Id && a.IsDefaultShipping));
             Assert.Equal(1, await check.SupplierAddresses.CountAsync(a => a.SupplierId == supplier.Id && a.IsDefaultBilling));
@@ -261,7 +262,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var customer = NewCustomer("CUS-FLT");
@@ -285,7 +286,7 @@ public class PartnersAndSharedMasterTests
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
             db.ChangeTracker.Clear();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(4, await check.CustomerAddresses.CountAsync(a => a.CustomerId == customer.Id));
             Assert.Equal(1, await check.CustomerAddresses.CountAsync(a => a.CustomerId == customer.Id && a.IsDefaultShipping));
             Assert.Equal(1, await check.CustomerAddresses.CountAsync(a => a.CustomerId == customer.Id && a.IsDefaultBilling));
@@ -303,13 +304,13 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.TaxRates.Add(NewTaxRate("VAT15", "Standard VAT", 15.000000m));
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.TaxRates.SingleAsync(t => t.Code == "VAT15");
             Assert.True(loaded.Rate == 15.000000m, "FIN-CALC-10: percentages stored with 6 decimal places");
             Assert.True(loaded.IsActive, "lookup rows default to active");
@@ -327,7 +328,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.TaxRates.Add(NewTaxRate("VAT101", "Impossible", 101m));
@@ -338,7 +339,7 @@ public class PartnersAndSharedMasterTests
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
             db.ChangeTracker.Clear();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(0, await check.TaxRates.CountAsync());
         }
         finally
@@ -354,13 +355,13 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.PaymentTerms.Add(NewPaymentTerm("NET30", "Net 30 days", 30));
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.PaymentTerms.SingleAsync(t => t.Code == "NET30");
             Assert.Equal(30, loaded.DueDays);
             Assert.True(loaded.IsActive, "lookup rows default to active");
@@ -378,7 +379,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             // FIN-021 derives due dates from DueDays: a negative count would
@@ -386,7 +387,7 @@ public class PartnersAndSharedMasterTests
             db.PaymentTerms.Add(NewPaymentTerm("NET-NEG", "Negative", -5));
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(0, await check.PaymentTerms.CountAsync());
         }
         finally
@@ -405,7 +406,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             db.TaxRates.Add(NewTaxRate("DUP", "First", 10m));
@@ -425,7 +426,7 @@ public class PartnersAndSharedMasterTests
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
             db.ChangeTracker.Clear();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.TaxRates.CountAsync(t => t.Code == "DUP"));
             Assert.Equal(1, await check.PaymentTerms.CountAsync(t => t.Code == "DUP"));
             Assert.Equal(1, await check.ReasonCodes.CountAsync(r => r.Code == "DUP"));
@@ -443,7 +444,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var supplier = NewSupplier("SUP-DEL");
@@ -453,19 +454,19 @@ public class PartnersAndSharedMasterTests
             await db.SaveChangesAsync();
 
             // Hard delete must be refused while a child row exists (FK Restrict).
-            await using var del = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var del = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await del.Suppliers.SingleAsync(s => s.Code == "SUP-DEL");
             del.Suppliers.Remove(loaded);
             await Assert.ThrowsAsync<DbUpdateException>(() => del.SaveChangesAsync());
 
             // The approved path: deactivate, never delete (PLT-075).
-            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var stillThere = await deact.Suppliers.SingleAsync(s => s.Code == "SUP-DEL");
             stillThere.Status = SupplierStatus.Inactive;
             stillThere.UpdatedAt = DateTimeOffset.UtcNow;
             await deact.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var final = await check.Suppliers.SingleAsync(s => s.Code == "SUP-DEL");
             Assert.Equal(SupplierStatus.Inactive, final.Status);
             Assert.Equal(1, await check.SupplierAddresses.CountAsync(a => a.SupplierId == final.Id));
@@ -483,7 +484,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var customer = NewCustomer("CUS-DEL");
@@ -492,18 +493,18 @@ public class PartnersAndSharedMasterTests
             db.CustomerAddresses.Add(NewCustomerAddress(customer.Id, shipping: false, billing: false, "1 St"));
             await db.SaveChangesAsync();
 
-            await using var del = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var del = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await del.Customers.SingleAsync(c => c.Code == "CUS-DEL");
             del.Customers.Remove(loaded);
             await Assert.ThrowsAsync<DbUpdateException>(() => del.SaveChangesAsync());
 
-            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var stillThere = await deact.Customers.SingleAsync(c => c.Code == "CUS-DEL");
             stillThere.Status = CustomerStatus.Inactive;
             stillThere.UpdatedAt = DateTimeOffset.UtcNow;
             await deact.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var final = await check.Customers.SingleAsync(c => c.Code == "CUS-DEL");
             Assert.Equal(CustomerStatus.Inactive, final.Status);
             Assert.Equal(1, await check.CustomerAddresses.CountAsync(a => a.CustomerId == final.Id));
@@ -524,7 +525,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
@@ -549,7 +550,7 @@ public class PartnersAndSharedMasterTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             // A1-3's own seven tables, by name. The schema total is owned by

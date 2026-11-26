@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.MasterData.Infrastructure.Location;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 namespace SupplyForge.MasterData.IntegrationTests;
 
@@ -23,7 +24,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -41,7 +42,7 @@ public class WarehouseLocationTests
             db.Warehouses.Add(warehouse);
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var loaded = await check.Warehouses.SingleAsync(w => w.Code == "WH-001");
 
             Assert.Equal(branchId, loaded.BranchId);
@@ -66,7 +67,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branch1 = Guid.NewGuid();
@@ -87,7 +88,7 @@ public class WarehouseLocationTests
             db.Warehouses.Add(new Warehouse { Id = Guid.NewGuid(), BranchId = branch2, Code = "WH-001", Name = "W2-Inactive", IsActive = false, CreatedAt = DateTimeOffset.UtcNow });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             Assert.Equal(1, await check.Warehouses.CountAsync(w => w.Code == "WH-001"));
         }
         finally
@@ -103,7 +104,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -117,25 +118,25 @@ public class WarehouseLocationTests
             await db.SaveChangesAsync();
 
             // Restrict blocks deleting a parent that still has children.
-            await using var delWh = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var delWh = NewContext(dbName);
             var loadedWh = await delWh.Warehouses.SingleAsync(w => w.Code == "WH-DEL");
             delWh.Warehouses.Remove(loadedWh);
             await Assert.ThrowsAsync<DbUpdateException>(() => delWh.SaveChangesAsync());
 
             // Restrict also blocks deleting the branch that owns the warehouse.
-            await using var delBranch = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var delBranch = NewContext(dbName);
             var loadedBranch = await delBranch.Branches.SingleAsync(b => b.Id == branchId);
             delBranch.Branches.Remove(loadedBranch);
             await Assert.ThrowsAsync<DbUpdateException>(() => delBranch.SaveChangesAsync());
 
             // The approved path: deactivate, never delete (PLT-075, MD rules).
-            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var deact = NewContext(dbName);
             var stillThere = await deact.Warehouses.SingleAsync(w => w.Code == "WH-DEL");
             stillThere.IsActive = false;
             stillThere.UpdatedAt = DateTimeOffset.UtcNow;
             await deact.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var final = await check.Warehouses.SingleAsync(w => w.Code == "WH-DEL");
             Assert.False(final.IsActive);
             Assert.NotNull(final.UpdatedAt);
@@ -153,7 +154,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -177,7 +178,7 @@ public class WarehouseLocationTests
             }
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var loaded = await check.StorageLocations.Where(l => l.WarehouseId == wh.Id).ToListAsync();
             Assert.Equal(5, loaded.Count);
             Assert.Contains(loaded, l => l.Type == LocationType.Receiving);
@@ -199,7 +200,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -233,7 +234,7 @@ public class WarehouseLocationTests
             });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             Assert.Equal(0, await check.StorageLocations.CountAsync());
         }
         finally
@@ -249,7 +250,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -270,7 +271,7 @@ public class WarehouseLocationTests
             db.StorageLocations.Add(new StorageLocation { Id = Guid.NewGuid(), WarehouseId = wh.Id, Type = LocationType.Storage, Code = "A-01", Name = "Loc 1 Inactive", IsActive = false, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             Assert.Equal(2, await check.StorageLocations.CountAsync(l => l.WarehouseId == wh.Id && l.Code == "A-01"));
             Assert.Equal(1, await check.StorageLocations.CountAsync(l => l.WarehouseId == wh.Id && l.Code == "A-01" && l.IsActive));
         }
@@ -287,7 +288,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -305,7 +306,7 @@ public class WarehouseLocationTests
             db.StorageLocations.Add(new StorageLocation { Id = Guid.NewGuid(), WarehouseId = wh.Id, Type = LocationType.Storage, Code = "L-02", Name = "Blocked Active", IsActive = true, IsBlocked = true, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var normal = await check.StorageLocations.SingleAsync(l => l.Code == "L-01");
             Assert.False(normal.IsBlocked);
             var blocked = await check.StorageLocations.SingleAsync(l => l.Code == "L-02");
@@ -330,7 +331,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -342,13 +343,13 @@ public class WarehouseLocationTests
             db.StorageLocations.Add(new StorageLocation { Id = Guid.NewGuid(), WarehouseId = wh.Id, Type = LocationType.Storage, Code = "L-01", Name = "Active", IsActive = true, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            await using var deact = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var deact = NewContext(dbName);
             var loc = await deact.StorageLocations.SingleAsync(l => l.Code == "L-01");
             loc.IsActive = false;
             loc.UpdatedAt = DateTimeOffset.UtcNow;
             await deact.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var final = await check.StorageLocations.SingleAsync(l => l.Code == "L-01");
             Assert.False(final.IsActive);
         }
@@ -365,7 +366,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -377,7 +378,7 @@ public class WarehouseLocationTests
             db.StorageLocations.Add(new StorageLocation { Id = Guid.NewGuid(), WarehouseId = wh.Id, Type = LocationType.Storage, Code = "L-01", Name = "Loc", IsActive = true, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var loadedWh = await check.Warehouses.SingleAsync(w => w.Code == "WH-DM1");
             var loadedLoc = await check.StorageLocations.SingleAsync(l => l.Code == "L-01");
 
@@ -397,7 +398,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -429,7 +430,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             var branchId = Guid.NewGuid();
@@ -439,16 +440,16 @@ public class WarehouseLocationTests
             db.StorageLocations.Add(new StorageLocation { Id = Guid.NewGuid(), WarehouseId = wh.Id, Type = LocationType.Storage, Code = "L-01", Name = "Loc", IsActive = true, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = NewContext(dbName);
             var loadedWh = await check.Warehouses.SingleAsync(w => w.Code == "WH-RV");
             var loadedLoc = await check.StorageLocations.SingleAsync(l => l.Code == "L-01");
             Assert.NotEmpty(loadedWh.RowVersion);
             Assert.NotEmpty(loadedLoc.RowVersion);
 
             // Both contexts load BEFORE either saves, so update2 holds a stale RowVersion.
-            await using var update1 = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var update1 = NewContext(dbName);
             var wh1 = await update1.Warehouses.SingleAsync(w => w.Code == "WH-RV");
-            await using var update2 = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var update2 = NewContext(dbName);
             var wh2 = await update2.Warehouses.SingleAsync(w => w.Code == "WH-RV");
 
             wh1.Name = "Updated 1";
@@ -472,7 +473,7 @@ public class WarehouseLocationTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = NewContext(dbName);
             await db.GetService<IMigrator>().MigrateAsync();
 
             // A1-1 (2) + A1-2 (4) + A1-3 (7) + A1-4 (2) = 15 tables in master_data
@@ -544,6 +545,9 @@ public class WarehouseLocationTests
             await ThrowawayDatabase.DropAsync(dbName);
         }
     }
+
+    private static MasterDataDbContext NewContext(string dbName) =>
+        new(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
 
     private static async Task AddBranchAsync(MasterDataDbContext db, Guid branchId)
     {

@@ -8,6 +8,7 @@ using SupplyForge.Host.OpenApi;
 using SupplyForge.Host.RateLimiting;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,6 +45,10 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
+// A1-4 Part 2: resolve the caller's branch scope per request and scope the
+// ambient accessor for the rest of the request (fail closed, Q-E).
+app.UseMiddleware<BranchScopeMiddleware>();
+
 app.MapGet(ApiRoutes.Health.Liveness, () => Results.Ok(new { status = "healthy" }))
     // Intentionally public liveness probe (PLT-022 coverage: explicit AllowAnonymous).
     .AllowAnonymous();
@@ -63,6 +68,10 @@ using (var seedScope = app.Services.CreateScope())
     // idempotent first-run shape. Returns false when the master_data
     // migration has not been applied to this database yet — expected on a
     // database that predates A1, and never a reason to refuse traffic.
+    // A1-4 Part 2 (Q-E option a): seed runs under the explicit system scope,
+    // set on the scoped holder for this scope only — never reachable from HTTP.
+    var holder = seedScope.ServiceProvider.GetRequiredService<BranchScopeHolder>();
+    holder.Scope = SystemBranchScope.Create();
     var masterDataSeed = seedScope.ServiceProvider.GetRequiredService<MasterDataSeed>();
     if (!await masterDataSeed.EnsureSeededAsync(app.Lifetime.ApplicationStopping))
     {

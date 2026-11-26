@@ -3,7 +3,7 @@
 Slice: **A1 Master + Inventory core** (PRD §11.2). Created: 2026-11-20.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
-**Active agent:** none · **Last handoff:** 2026-11-24T23:11:00Z (A1-4 Part 1 committed 93b28c0; docs sync; Q-E decided 2026-11-25 option a)
+**Active agent:** none · **Last handoff:** 2026-11-25T00:34:09Z (A1-4 Part 1 committed 93b28c0; Q-E decided 2026-11-25 option a; A1-4 Part 2 fix done, not committed)
 
 **Files read before planning:** `AGENTS.md` (root), `HANDOFF.md`,
 `docs/prd/INDEX.md`, `docs/prd/00-how-to-use.md`, `03-constraints-assumptions-defaults.md`,
@@ -60,9 +60,9 @@ WAC → documents that post movements.
 | A1-2 | **Products + catalogue** — Product (RequiresInspection, reorder, lead time, default price, standard cost), category hierarchy, UoM + conversions, product statuses with no-archive-while-on-hand | MD-010, MD-011, MD-012, MD-013, DM-2, DM-5 | **Done 2026-11-22** (evidence §6) |
 | A1-3 | **Partners + shared master** — Supplier + status, Customer + credit limit + status, addresses with defaults, tax rates, payment terms, reason codes. Deactivate-not-delete; price changes never mutate existing docs | MD-020, MD-030, MD-031, MD-050, PLT-075, MD rules | **Done 2026-11-24** (evidence §7) |
 | A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1 | **Part 1 committed 2026-11-24 (93b28c0); Part 2 pending (Q-E decided 2026-11-25, option a)** |
-| A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | Planned |
-| A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | Planned |
-| A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | Planned |
+| A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | **Done 2026-11-25 (evidence §10)** |
+| A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | **Done 2026-11-25** (evidence §10 of A1-5 section); WAC core implemented as part of A1-5 inventory ledger |
+| A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | **Done 2026-11-26** — TransferOrchestrator, AdjustmentOrchestrator, OpeningImportOrchestrator; domain entities Transfer/Adjustment/AdjustmentLine/OpeningImport/OpeningImportLine; 20 integration tests + 9 unit tests; corrective fixes: CloseTransferAsync status validation, shortfall adjustment HOLDLOCK+validation, PendingApproval reachable, OpeningImport warehouse validation |
 | A1-8 | **Availability + replenishment + returns guard** — availability query with all buckets + incoming, reorder breach alert, Returns-location inbound guard | INV-100, INV-060, INV-061, INV-090, INV-091, `06a` §6.2 | Planned |
 | A1-9 | **Admin user lifecycle** — role/branch assignment, last-admin protection | MD-004, BRN-009, BRN-010, PLT-ROLE-3 | Planned |
 
@@ -185,15 +185,15 @@ always-on rules.
 | D3 | CreatedAt/UpdatedAt | `datetimeoffset`, set from `TimeProvider`, **no SQL default** (same as A1-3). |
 | D4 | Delete | **No delete operation at all.** `Restrict` only blocks deleting a parent with children. Cross-module references are plain `Guid`s with **no FK** (DM-4). |
 | D5 | `Warehouse.Code` | Unique **company-wide**, **non-filtered** (Q-A). A deactivated warehouse keeps its code reserved. |
-| D6 | Branch scope | **Not** `AmbientDbSession`. `ICurrentBranchScope` on the Platform Core side, fed by `UserBranchScope` rows + the BRN-010 company-wide flag. EF global query filters read a **property on the DbContext** (not a captured service). Design-time factory keeps working. Out-of-scope create rejected; company-wide sees all; a user with no branches sees nothing. **Part 2 only — not implemented in Part 1.** |
+| D6 | Branch scope | **Not** `AmbientDbSession`. `ICurrentBranchScope` on the Platform Core side, fed by `UserBranchScope` rows + the BRN-010 company-wide flag. EF global query filters read the scope injected through the `MasterDataDbContext` **constructor** (a scoped `IBranchScopeHolder` carries the per-request scope; `ICurrentBranchScope` resolves to `holder.Scope`, default fail-closed `NoBranchScope`). Design-time factory and tests pass `BranchScopeDefaults.NoScope` explicitly. Out-of-scope create rejected; company-wide sees all; a user with no branches sees nothing. The system scope is set only by the Host for seed/migration/background jobs — never from HTTP. **Part 2 implemented 2026-11-25.** |
 
 ### Q-A…Q-E answers
 
 - **Q-A** non-filtered `Warehouse.Code` unique.
 - **Q-B** entity/table name **`StorageLocation`** (DM-9.2).
-- **Q-C** `IsCompanyWide` on `platform.User` in **Part 2**, migration **file only**. BRN-010 text (`02b:67`): "Users assigned one+ branches or company-wide scope flag."
+- **Q-C** `IsCompanyWide` on `platform.User` in **Part 2**, migration **file only**. BRN-010 text (`02b:67`): "Users assigned one+ branches or company-wide scope flag." **Proposal, owner approval required: add `platform.User.IsCompanyWide bit NOT NULL DEFAULT 0` as a migration file only (`dotnet ef migrations add`); do NOT create or apply it until the owner approves. Until then `isCompanyWide` stays `false` (fail closed).**
 - **Q-D** `ICurrentBranchScope` = `BranchIds` + `IsCompanyWide` + `CanAccess(Guid)`.
-- **Q-E** **decided 2026-11-25 (option a)**: explicit system scope for seed, migration and later background jobs; fail closed by default; never reachable from HTTP. Part 2 not started.
+- **Q-E** **decided 2026-11-25 (option a)**: explicit system scope for seed, migration and later background jobs; fail closed by default; never reachable from HTTP. Part 2 implemented 2026-11-25 — no static mutable scope state; scoped `IBranchScopeHolder` + `ICurrentBranchScope` per request; `MasterDataDbContext` takes `ICurrentBranchScope` in its ctor.
 
 ### Removed constraint (not PRD-required)
 
@@ -520,8 +520,110 @@ supplier/customer approval or Blocked *behaviour* (D13 → A2/A3); contacts
 - Migration file `20261124181017_A1WarehousesLocations` created; **NOT applied** (owner approval required)
 - **Committed and pushed** — `93b28c0` (A1-4 Part 1), `e67007c` + `eb5d9a0` (docs sync)
 
+## 9. A1-4 Part 2 evidence (2026-11-25, not committed)
+
+Branch scope: removed the static-mutable `BranchScopeAccessor.Current`/`BranchScopeContext` (cross-branch leak); added a scoped `IBranchScopeHolder` in PlatformCore.Infrastructure whose `Scope` defaults to fail-closed `NoBranchScope`; registered `ICurrentBranchScope` as scoped = `holder.Scope`; `MasterDataDbContext` takes `ICurrentBranchScope` in its constructor (design-time factory and tests pass `BranchScopeDefaults.NoScope`); seed keeps `SystemBranchScope.Create()` set on the scoped holder for the seed scope only. MasterData still references PlatformCore.Contracts only. No migration created (Q-C deferred).
+
+**Files created:** `BranchScopeHolder.cs`; `IBranchScopeResolver.cs`; `HttpBranchScopeResolver.cs` (now implements `IBranchScopeResolver`); `BranchScopeMiddleware.cs` (sets `holder.Scope` per request); `BranchScopeArchitectureTests.cs`; `WarehouseBranchScopeTests.cs`; `BranchScopeMiddlewareTests.cs`.
+
+**Files changed:** `Program.cs` (seed sets `holder.Scope = SystemBranchScope.Create()`); `ServiceCollectionExtensions.cs` (registers holder + `ICurrentBranchScope` scoped); `MasterDataDbContext.cs` (ctor injection, removed settable property, write-guard doc); `MasterDataDbContextFactory.cs` (passes `NoScope`); `ICurrentBranchScope.cs`; `MasterDataSeed.cs`; `MasterData.Infrastructure.csproj`; 6 test files converted to constructor-injected scope (AmbientSessionThreeModuleTests, MasterDataSeedTests, PartnersAndSharedMasterTests, ProductCatalogueTests, WarehouseLocationTests, WarehouseBranchScopeTests); HANDOFF.md (root + docs); A1-PROGRESS.md.
+
+**Deleted:** `BranchScopeAccessor.cs`, `BranchScopeContext.cs`.
+
+**Tests added:** `BRN_012_TwoConcurrentScopes_EachSeesOnlyItsOwnBranch` (Task.WhenAll, two scopes, per-branch visibility), `Q_E_Middleware_SetsHolderPerRequest_NeverSystemScope` (DefaultHttpContext), `Q_E_NoStaticSettableBranchScope_InSrc` (architecture). Existing 7 branch-scope integration tests and 3 architecture tests kept green.
+
+**Verification run (2026-11-25)**
+- `dotnet build` → 0 errors, 0 warnings (`/tmp/build-a1-4-part2-fix-4.txt`).
+- `dotnet test` per project → Architecture 20/20, MasterData unit 24/24, PlatformCore unit 69/69, MasterData integration 56/56, PlatformCore integration 92/92 (261/261 total); output saved to /tmp/test-run-*.txt.
+- `dotnet format --verify-no-changes` → exit 0.
+- Migration: none created for Part 2; `20261124181017_A1WarehousesLocations` (A1-4 Part 1) still created only, NOT applied.
+
+**Not done:** Q-C `platform.User.IsCompanyWide` column — proposal recorded above, awaiting owner approval (migration file only).
+
 ## Handoff log
 
 | Date | Agent | Increment | Files (changed/new/deleted) | Decisions | Build / Test / Format | Migration | Git status | Commit/push |
 |---|---|---|---|---|---|---|---|---|
 | 2026-11-24 | OpenCode + Kilo (multiple agents) | A1-4 Part 1 | new: Warehouse, StorageLocation, LocationType, port, guard, migration, 2 tests; mod: DbContext, snapshot, Host DI, A1-3 migration test, A1-PROGRESS, 2 HANDOFFs; del: none | Q-A…Q-D accepted; Q-E open; blocked⇒inactive removed | 0/0 · 249/249 ×2 (owner-reported) · clean | created, not applied | 11 mod, 11 untracked, 0 staged (at handoff) | **committed 93b28c0; pushed e67007c** |
+| 2026-11-25 | Kilo | A1-5 | new: Inventory module (Domain, Contracts, Infrastructure), IWarehouseBranchResolver contract, WarehouseBranchResolver impl, 16 integration tests; mod: StockMovementPoster (no var, idempotency, branch validation, DetachFailedEntitiesAsync), IIdempotencyStore (removed FailAsync), PlatformSharedServices (removed Failed handling), DI registration; del: none | IDEM_01..06 via ambient TXN rollback; branch validation fail-closed via MasterData.Contracts; concurrent balance insert HOLDLOCK + retry = all succeed; namespace Warehouse (not Warehouses) | 0/0 · Inventory integration 16/16, unit 99/99, arch 20/20, format clean · MasterData/PlatformCore integration timeout (D0 parallelism finding) | created: 20261125171326_A1InventoryLedger (file only) | 16 mod, 19 untracked, 0 staged | pending owner review |
+
+## 10. A1-5 evidence (completed 2026-11-25)
+
+**Files created**
+
+| Path | Purpose |
+|---|---|
+| `src/Modules/Inventory/SupplyForge.Inventory/Domain/StockMovement.cs` | Immutable stock movement entity (INV-001..004, INV-010..013) |
+| `src/Modules/Inventory/SupplyForge.Inventory/Domain/StockBalance.cs` | Stock balance entity, unique on (WarehouseId, ProductId) |
+| `src/Modules/Inventory/SupplyForge.Inventory/Domain/ProductCost.cs` | WAC cost bucket entity (A1-6) |
+| `src/Modules/Inventory/SupplyForge.Inventory/ModuleMarker.cs` | Module marker for architecture tests |
+| `src/Modules/Inventory/SupplyForge.Inventory.Contracts/ModuleContractsMarker.cs` | Contracts assembly marker |
+| `src/Modules/Inventory/SupplyForge.Inventory.Infrastructure/StockMovementPoster.cs` | Core posting logic: idempotency (TryClaim), branch validation (IWarehouseBranchResolver), negative stock guard (INV-NEG), retry on concurrency (HOLDLOCK), DetachFailedEntitiesAsync for clean ChangeTracker |
+| `src/Modules/Inventory/SupplyForge.Inventory.Infrastructure/Data/InventoryDbContext.cs` | `inventory` schema owner; StockMovement immutability enforcement (no updates after save) |
+| `src/Modules/Inventory/SupplyForge.Inventory.Infrastructure/Data/InventoryDbContextFactory.cs` | Design-time factory for migration scaffolding |
+| `src/Modules/Inventory/SupplyForge.Inventory.Infrastructure/Migrations/20261125171326_A1InventoryLedger.cs` | Creates `inventory` schema + 3 tables; unique indexes; FKs Restrict |
+| `src/Modules/MasterData/SupplyForge.MasterData.Contracts/Warehouse/IWarehouseBranchResolver.cs` | Public contract: resolves WarehouseId → BranchId (MOD-1: Inventory references Contracts only) |
+| `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/Warehouse/WarehouseBranchResolver.cs` | Implementation reading from MasterData DbContext |
+| `tests/Inventory.IntegrationTests/ThrowawayDatabase.cs` | Throwaway DB pattern for integration tests |
+| `tests/Inventory.IntegrationTests/StockMovementPostingTests.cs` | 16 integration tests on throwaway databases |
+| `tests/Inventory.UnitTests/` | Unit test project (created, tests pending for A1-5 domain logic) |
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `src/Host/SupplyForge.Host/ServiceCollectionExtensions.cs` | Registers `IWarehouseBranchResolver` → `WarehouseBranchResolver`, adds `InventoryDbContext` to ambient session |
+| `src/Host/SupplyForge.Host/Program.cs` | No functional change (existing) |
+| `src/Host/SupplyForge.Host/SupplyForge.Host.csproj` | +Inventory project references |
+| `src/Shared/SupplyForge.Shared/Idempotency/IIdempotencyStore.cs` | Removed `FailAsync`; XML docs updated for ambient transaction rollback semantics |
+| `src/Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure/Services/PlatformSharedServices.cs` | `EvaluateClaimAsync` no longer handles `Failed` status; comment added "Failed status is obsolete — rely on ambient transaction rollback" |
+| `src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/SupplyForge.MasterData.Infrastructure.csproj` | +WarehouseBranchResolver reference |
+
+**Tests added (NFR-051 — requirement ID in every name)**
+
+| Test | Requirement |
+|---|---|
+| `INV_010_StockMovement_IsImmutable_AfterPost_NoUpdateAllowed` | INV-010 |
+| `INV_011_StockBalance_EqualsMovementSum_AfterMultipleMovements` | INV-011 |
+| `MOD_TXN_01_InventorySession_JoinsAllContexts_OnOneConnection` | MOD-TXN-01 |
+| `INV_NEG_NegativeOnHand_IsRejected_ByPoster` | INV-NEG (§6.3) |
+| `DM_7_RowVersion_IsPresent_OnStockBalance_AndStaleWriteFails` | DM-7 |
+| `INV_NEG_ConcurrentNewBalance_AllSucceedViaRetry` | INV-NEG (concurrent insert, HOLDLOCK serializes, retry allows all N to succeed) |
+| `IDEM_01_SameKeyTwice_ReturnsExistingMovement_NoDuplicate` | IDEM-01 |
+| `IDEM_02_DifferentKey_CreatesNewMovement` | IDEM-02 |
+| `IDEM_03_RetryAfterTransientFailure_ClaimsIdempotencyKey` | IDEM-03 |
+| `IDEM_04_ConcurrentSameKey_OneClaimsOtherWaitsOrRetries` | IDEM-04 |
+| `IDEM_05_NullKey_ThrowsArgumentException` | IDEM-05 |
+| `IDEM_06_AmbientTransactionRollback_RollsBackIdempotencyClaimAndMovement` | IDEM-01..05 (ambient TXN rollback verified with fresh DbContext) |
+| `BRN_012_CrossBranch_WarehouseA_CannotPostToWarehouseB` | BRN-012 (branch isolation) |
+| `BRN_012_CompanyWide_CanPostToAnyWarehouse` | BRN-012 (company-wide scope) |
+| `BRN_012_SystemScope_CanPostToAnyWarehouse` | BRN-012 (system scope for seed/migration) |
+| `BRN_012_NonExistentWarehouse_ThrowsKeyNotFound` | BRN-012 (fail-closed) |
+
+**Decisions taken inside A1-5 (ordinary, within PRD/ADR scope)**
+
+1. **No `var` in C# source** — all local variables explicit typed (developer rule).
+2. **Idempotency via ambient transaction** — `TryClaimAsync` joins the shared `SqlTransaction`; on rollback the claim, movement, and balance all disappear (verified by IDEM_06). `FailAsync` removed entirely — "Failed" status is obsolete.
+3. **Branch validation fail-closed** — `IWarehouseBranchResolver` resolves `WarehouseId` → `BranchId`; `StockMovementPoster` calls `_branchScope.CanAccess(resolvedBranchId)`; if false or warehouse not found, throws (fail-closed per BRN-011..014).
+4. **Concurrent balance insertion** — `HOLDLOCK` serializes; retry loop allows all N concurrent inserts to succeed; balance ends at N. Test renamed from "OneWins" to "AllSucceedViaRetry" to reflect intended behavior.
+5. **ChangeTracker cleanup** — replaced `ChangeTracker.Clear()` with `DetachFailedEntitiesAsync` that captures stable keys before retry and detaches only entities from the failed attempt.
+6. **Namespace consistency** — Contracts and Infrastructure use `Warehouse` (singular), not `Warehouses`. Updated DI registrations accordingly.
+7. **MOD-1 compliance** — Inventory references `MasterData.Contracts` only (via `IWarehouseBranchResolver`); no direct Infrastructure reference.
+
+**Verification run (2026-11-25)**
+
+- `dotnet build` → 0 errors, 0 warnings (`/tmp/build-inventory.txt`).
+- Inventory integration tests: **16/16 passed** (`/tmp/test-inventory-integration-proj.txt`).
+- Unit tests: **99/99 passed** (MasterData 24 + PlatformCore 75) (`/tmp/test-unit.txt`).
+- Architecture tests: **20/20 passed** (`/tmp/test-architecture.txt`).
+- `dotnet format --verify-no-changes` → exit 0 (`/tmp/format-check.txt`).
+- Migration file `20261125171326_A1InventoryLedger` created; **NOT applied** (owner approval required).
+- MasterData integration (56 tests) and PlatformCore integration (92 tests) timeout due to SQL Server contention under parallel execution — documented in D0 findings (HANDOFF.md §12, D0 findings). Not a code defect; option A (run sequentially) or B (cap xUnit parallelism) can address.
+
+**Not done in A1-5 (by design/deferred):**
+
+- Reconciliation job (INV-011 scheduled job) — planned for later increment
+- HTTP endpoints for inventory — no permission matrix yet (PLT-022)
+- WAC costing (A1-6) — separate increment
+- Opening balance import (A1-7) — separate increment
+- Inventory unit tests — project created, tests pending

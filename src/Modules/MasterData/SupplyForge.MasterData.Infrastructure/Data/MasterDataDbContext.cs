@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SupplyForge.MasterData.Domain;
+using SupplyForge.PlatformCore.Contracts.Security;
+using WarehouseEntity = SupplyForge.MasterData.Domain.Warehouse;
 
 namespace SupplyForge.MasterData.Infrastructure.Data;
 
@@ -16,9 +18,12 @@ public class MasterDataDbContext : DbContext
 {
     public const string Schema = "master_data";
 
-    public MasterDataDbContext(DbContextOptions<MasterDataDbContext> options)
+    private readonly ICurrentBranchScope _branchScope;
+
+    public MasterDataDbContext(DbContextOptions<MasterDataDbContext> options, ICurrentBranchScope branchScope)
         : base(options)
     {
+        _branchScope = branchScope;
     }
 
     public DbSet<Company> Companies => Set<Company>();
@@ -36,8 +41,68 @@ public class MasterDataDbContext : DbContext
     public DbSet<ReasonCode> ReasonCodes => Set<ReasonCode>();
 
     // A1-4 — MD-040, MD-041, MD-042
-    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<WarehouseEntity> Warehouses => Set<WarehouseEntity>();
     public DbSet<StorageLocation> StorageLocations => Set<StorageLocation>();
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        EnforceBranchScopeOnWrite();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override int SaveChanges()
+    {
+        EnforceBranchScopeOnWrite();
+        return base.SaveChanges();
+    }
+
+    /// <summary>
+    /// Rejects writes of branch-owned entities outside the caller's scope.
+    /// <para>
+    /// The StorageLocation check reads <c>Warehouse.BranchId</c> through the
+    /// Warehouse navigation, so the Warehouse navigation must be populated
+    /// (eagerly loaded) on the tracked StorageLocation; otherwise the branch
+    /// id cannot be determined and the write is rejected as out of scope.
+    /// </para>
+    /// </summary>
+    private void EnforceBranchScopeOnWrite()
+    {
+        var hasBranchOwned = ChangeTracker.Entries()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(e => e.Entity)
+            .Any(entity => entity is WarehouseEntity or StorageLocation);
+        if (!hasBranchOwned)
+        {
+            return;
+        }
+
+        // Q-E: fail closed — a write under no scope must not create branch data.
+        if (_branchScope.IsSystem || _branchScope.IsCompanyWide)
+        {
+            return;
+        }
+
+        foreach (var entry in ChangeTracker.Entries<WarehouseEntity>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified))
+        {
+            if (!_branchScope.CanAccess(entry.Entity.BranchId))
+            {
+                throw new InvalidOperationException(
+                    "Branch scope rejected: creating or modifying a Warehouse outside the caller's scope (BRN-010).");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<StorageLocation>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified))
+        {
+            var branchId = entry.Entity.Warehouse?.BranchId;
+            if (branchId is null || !_branchScope.CanAccess(branchId.Value))
+            {
+                throw new InvalidOperationException(
+                    "Branch scope rejected: creating or modifying a StorageLocation outside the caller's scope (BRN-010).");
+            }
+        }
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -255,9 +320,13 @@ public class MasterDataDbContext : DbContext
         // StorageLocation: branch-owned transitively via Warehouse.BranchId.
         // Both: deactivate not delete (IsActive), RowVersion for optimistic concurrency (DM-7).
         // FKs: Restrict — referenced records deactivate, never hard-deleted (PLT-075, MD rules).
-        // No global query filters here; added in PART 2 via ICurrentBranchScope.
+        // PART 2: EF global query filters on Warehouse (BranchId) and
+        // StorageLocation (via Warehouse.BranchId). The filter reads the
+        // constructor-injected scope (_branchScope), so a fresh context always
+        // applies the current scope. System scope sees all; no scope (fail
+        // closed, Q-E) sees nothing.
 
-        modelBuilder.Entity<Warehouse>(e =>
+        modelBuilder.Entity<WarehouseEntity>(e =>
         {
             e.ToTable("Warehouse");
             e.HasKey(x => x.Id);
@@ -269,6 +338,10 @@ public class MasterDataDbContext : DbContext
             e.HasIndex(x => x.Code).IsUnique();
             e.HasOne(x => x.Branch).WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.RowVersion).IsRowVersion();
+            e.HasQueryFilter(x =>
+                _branchScope.IsSystem ||
+                _branchScope.IsCompanyWide ||
+                (_branchScope.BranchIds.Count > 0 && _branchScope.BranchIds.Contains(x.BranchId)));
         });
 
         modelBuilder.Entity<StorageLocation>(e =>
@@ -291,6 +364,11 @@ public class MasterDataDbContext : DbContext
             e.HasIndex(x => x.Type); // For eligibility queries (§6.2)
             e.HasOne(x => x.Warehouse).WithMany(x => x.Locations).HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.RowVersion).IsRowVersion();
+            // Location is branch-owned transitively via Warehouse.BranchId.
+            e.HasQueryFilter(x =>
+                _branchScope.IsSystem ||
+                _branchScope.IsCompanyWide ||
+                (_branchScope.BranchIds.Count > 0 && _branchScope.BranchIds.Contains(x.Warehouse!.BranchId)));
         });
     }
 }

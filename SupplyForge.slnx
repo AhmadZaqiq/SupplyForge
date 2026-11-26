@@ -9,6 +9,11 @@
     <Project Path="src/Modules/Integrations/SupplyForge.Integrations.Infrastructure/SupplyForge.Integrations.Infrastructure.csproj" />
     <Project Path="src/Modules/Integrations/SupplyForge.Integrations/SupplyForge.Integrations.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Inventory/">
+    <Project Path="src/Modules/Inventory/SupplyForge.Inventory.Contracts/SupplyForge.Inventory.Contracts.csproj" />
+    <Project Path="src/Modules/Inventory/SupplyForge.Inventory.Infrastructure/SupplyForge.Inventory.Infrastructure.csproj" />
+    <Project Path="src/Modules/Inventory/SupplyForge.Inventory/SupplyForge.Inventory.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/MasterData/">
     <Project Path="src/Modules/MasterData/SupplyForge.MasterData.Contracts/SupplyForge.MasterData.Contracts.csproj" />
     <Project Path="src/Modules/MasterData/SupplyForge.MasterData.Infrastructure/SupplyForge.MasterData.Infrastructure.csproj" />

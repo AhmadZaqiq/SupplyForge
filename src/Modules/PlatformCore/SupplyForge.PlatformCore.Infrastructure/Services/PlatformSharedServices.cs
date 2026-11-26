@@ -109,6 +109,8 @@ public sealed class PlatformSharedServices :
     /// Claim evaluation shared by the read path and the lost-race re-read:
     /// payload mismatch wins first, then completed, else the claim is still
     /// in progress (IDEM-05).
+    /// The "Failed" status is obsolete — under ambient transactions (MOD-TXN-01, ADR-003),
+    /// failed attempts roll back the claim automatically; retry finds no claim and claims anew.
     /// </summary>
     private static IdempotencyClaimResult EvaluateClaim(IdempotencyKey existing, string payloadHash)
     {
@@ -132,16 +134,6 @@ public sealed class PlatformSharedServices :
 
         row.Status = "Completed";
         row.ResponseSnapshotJson = responseSnapshotJson;
-        row.CompletedAt = _clock.GetUtcNow();
-        await _db.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task FailAsync(string key, CancellationToken cancellationToken = default)
-    {
-        var row = await _db.IdempotencyKeys.FindAsync([key], cancellationToken)
-            ?? throw new InvalidOperationException($"Idempotency key {key} not found.");
-
-        row.Status = "Failed";
         row.CompletedAt = _clock.GetUtcNow();
         await _db.SaveChangesAsync(cancellationToken);
     }

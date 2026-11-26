@@ -39,6 +39,8 @@ public sealed class MasterDataSeed
     {
         _db = db;
         _clock = clock;
+        // Q-E option a: seed runs under the explicit system scope, set by the
+        // Host (the only composition root); design-time/tests set their own.
     }
 
     /// <summary>

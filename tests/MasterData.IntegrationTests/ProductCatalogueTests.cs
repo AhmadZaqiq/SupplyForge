@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 namespace SupplyForge.MasterData.IntegrationTests;
 
@@ -22,7 +23,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var uom = NewUom("EA");
@@ -49,7 +50,7 @@ public class ProductCatalogueTests
             db.Products.Add(product);
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.Products.SingleAsync(p => p.Code == "SKU-0001");
 
             Assert.Equal("Wireless scanner", loaded.Name);
@@ -77,7 +78,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var uom = NewUom("EA");
@@ -90,7 +91,7 @@ public class ProductCatalogueTests
             db.Products.Add(NewProduct("SKU-DUP", uom.Id, "Second"));
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.Products.CountAsync(p => p.Code == "SKU-DUP"));
         }
         finally
@@ -106,7 +107,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var root = NewCategory("ROOT", "Everything");
@@ -117,7 +118,7 @@ public class ProductCatalogueTests
             db.AddRange(root, child, grandchild);
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loadedRoot = await check.Categories
                 .Include(c => c.Children)
                 .SingleAsync(c => c.Code == "ROOT");
@@ -147,7 +148,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var uom = NewUom("EA");
@@ -158,7 +159,7 @@ public class ProductCatalogueTests
             db.Products.Add(product);
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.Products.SingleAsync(p => p.Code == "SKU-NO-CAT");
             Assert.Null(loaded.CategoryId);
         }
@@ -175,7 +176,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var each = NewUom("EA");
@@ -193,7 +194,7 @@ public class ProductCatalogueTests
             });
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var loaded = await check.UnitOfMeasureConversions.SingleAsync();
             Assert.Equal(box.Id, loaded.FromUnitId);
             Assert.Equal(each.Id, loaded.ToUnitId);
@@ -224,7 +225,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var each = NewUom("EA");
@@ -242,7 +243,7 @@ public class ProductCatalogueTests
             });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(0, await check.UnitOfMeasureConversions.CountAsync());
         }
         finally
@@ -262,7 +263,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var uom = NewUom("EA");
@@ -274,7 +275,7 @@ public class ProductCatalogueTests
             db.Products.Add(product);
             await db.SaveChangesAsync();
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             var stored = await check.Products
                 .Where(p => p.Code == "SKU-ARCH")
                 .Select(p => p.Status)
@@ -297,7 +298,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
@@ -330,7 +331,7 @@ public class ProductCatalogueTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             // A1-1's two tables + A1-2's four catalogue tables, asserted by

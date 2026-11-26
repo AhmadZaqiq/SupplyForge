@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Linq;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -162,6 +163,7 @@ public sealed class AmbientDbSession : IDbSession
 public sealed class AmbientDbSessionFactory : IDbSessionFactory
 {
     private readonly DbContext[] _contexts;
+    private readonly string[] _connectionStrings;
 
     /// <param name="contexts">
     /// Every module DbContext to enlist, in any order. The Host declares the
@@ -177,24 +179,18 @@ public sealed class AmbientDbSessionFactory : IDbSessionFactory
         }
 
         _contexts = contexts;
+        // Capture connection strings once at construction. Database
+        // GetConnectionString() reads the configured value from EF options,
+        // which is stable for the lifetime of the context — capturing here
+        // avoids any variance between BeginAsync calls.
+        _connectionStrings = contexts
+            .Select(c => RequireConnectionString(c.Database.GetConnectionString()))
+            .ToArray();
     }
 
     public async Task<IDbSession> BeginAsync(CancellationToken cancellationToken = default)
     {
-        // Configured string from EF options — deliberately NOT
-        // GetDbConnection().ConnectionString: SqlClient redacts the password
-        // from a connection's ConnectionString once it has been opened, and
-        // in the Host the scoped context has normally already executed the
-        // request's queries (permission resolution) before a session begins,
-        // so the live connection's string would be credential-less ("Login
-        // failed for user 'sa'" — found by the A0-6 HTTP round-trip test).
-        // Database.GetConnectionString() reads the unchanged configured
-        // value, which is also what the post-session restore needs.
-        var connectionStrings = new string[_contexts.Length];
-        for (var i = 0; i < _contexts.Length; i++)
-        {
-            connectionStrings[i] = RequireConnectionString(_contexts[i].Database.GetConnectionString());
-        }
+        var connectionStrings = _connectionStrings;
 
         // One shared connection ⇒ one target database. Two different strings
         // would silently pin every context to the first one's database.

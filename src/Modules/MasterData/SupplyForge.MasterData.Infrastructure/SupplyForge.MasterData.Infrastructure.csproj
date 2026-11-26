@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SupplyForge.MasterData\SupplyForge.MasterData.csproj" />
     <ProjectReference Include="..\SupplyForge.MasterData.Contracts\SupplyForge.MasterData.Contracts.csproj" />
+    <ProjectReference Include="..\..\PlatformCore\SupplyForge.PlatformCore.Contracts\SupplyForge.PlatformCore.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

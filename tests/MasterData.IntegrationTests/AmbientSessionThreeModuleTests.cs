@@ -9,6 +9,7 @@ using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Domain;
 using SupplyForge.PlatformCore.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 namespace SupplyForge.MasterData.IntegrationTests;
 
@@ -31,7 +32,7 @@ public class AmbientSessionThreeModuleTests
         {
             await using var pc = new PlatformCoreDbContext(ThrowawayDatabase.PlatformCore(dbName));
             await using var intDb = new IntegrationsDbContext(ThrowawayDatabase.Integrations(dbName));
-            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await MigrateAllAsync(pc, intDb, md);
 
             var factory = new AmbientDbSessionFactory(pc, intDb, md);
@@ -68,7 +69,7 @@ public class AmbientSessionThreeModuleTests
         {
             await using var pc = new PlatformCoreDbContext(ThrowawayDatabase.PlatformCore(dbName));
             await using var intDb = new IntegrationsDbContext(ThrowawayDatabase.Integrations(dbName));
-            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await MigrateAllAsync(pc, intDb, md);
 
             var tag = $"a11commit.{Guid.NewGuid():N}";
@@ -97,7 +98,7 @@ public class AmbientSessionThreeModuleTests
             // covered three schemas (MOD-TXN-04).
             await using var checkPc = new PlatformCoreDbContext(ThrowawayDatabase.PlatformCore(dbName));
             await using var checkInt = new IntegrationsDbContext(ThrowawayDatabase.Integrations(dbName));
-            await using var checkMd = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var checkMd = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await checkPc.AuditLogs.CountAsync(x => x.Action == tag));
             Assert.Equal(1, await checkInt.OutboxMessages.CountAsync(x => x.EventType == $"{tag}.outbox"));
             Assert.Equal(1, await checkMd.Branches.CountAsync(b => b.Code == branchCode));
@@ -117,7 +118,7 @@ public class AmbientSessionThreeModuleTests
         {
             await using var pc = new PlatformCoreDbContext(ThrowawayDatabase.PlatformCore(dbName));
             await using var intDb = new IntegrationsDbContext(ThrowawayDatabase.Integrations(dbName));
-            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await MigrateAllAsync(pc, intDb, md);
 
             var tag = $"a11rollback.{Guid.NewGuid():N}";
@@ -144,7 +145,7 @@ public class AmbientSessionThreeModuleTests
 
             await using var checkPc = new PlatformCoreDbContext(ThrowawayDatabase.PlatformCore(dbName));
             await using var checkInt = new IntegrationsDbContext(ThrowawayDatabase.Integrations(dbName));
-            await using var checkMd = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var checkMd = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(0, await checkPc.AuditLogs.CountAsync(x => x.Action == tag));
             Assert.Equal(0, await checkInt.OutboxMessages.CountAsync(x => x.EventType == $"{tag}.outbox"));
             Assert.Equal(0, await checkMd.Branches.CountAsync(b => b.Code == branchCode));

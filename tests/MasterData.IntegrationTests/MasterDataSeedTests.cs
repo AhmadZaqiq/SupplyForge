@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
+using SupplyForge.PlatformCore.Infrastructure.Security;
 
 namespace SupplyForge.MasterData.IntegrationTests;
 
@@ -23,7 +24,7 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
 
             var seed = new MasterDataSeed(db, TimeProvider.System);
@@ -57,13 +58,13 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var seeded = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var seeded = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await seeded.GetService<IMigrator>().MigrateAsync();
             Assert.True(await new MasterDataSeed(seeded, TimeProvider.System).EnsureSeededAsync());
 
             // A second ACTIVE company — MD-001 "exactly one active company
             // row" is a schema invariant, not only a seed convention.
-            await using var attempt = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var attempt = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             attempt.Companies.Add(new Company
             {
                 Id = Guid.NewGuid(),
@@ -74,7 +75,7 @@ public class MasterDataSeedTests
             await Assert.ThrowsAsync<DbUpdateException>(() => attempt.SaveChangesAsync());
 
             // Nothing changed: the seed's row is still the only active one.
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.Companies.CountAsync(c => c.IsActive));
             Assert.Equal(Company.SingletonId, (await check.Companies.SingleAsync(c => c.IsActive)).Id);
         }
@@ -91,7 +92,7 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
             Assert.True(await new MasterDataSeed(db, TimeProvider.System).EnsureSeededAsync());
 
@@ -126,19 +127,19 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using (var first = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName)))
+            await using (var first = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create()))
             {
                 await first.GetService<IMigrator>().MigrateAsync();
                 Assert.True(await new MasterDataSeed(first, TimeProvider.System).EnsureSeededAsync());
             }
 
             // Second run through a brand-new context — the Host restart case.
-            await using (var second = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName)))
+            await using (var second = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create()))
             {
                 Assert.True(await new MasterDataSeed(second, TimeProvider.System).EnsureSeededAsync());
             }
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(1, await check.Companies.CountAsync());
             Assert.Equal(3, await check.Branches.CountAsync());
         }
@@ -155,7 +156,7 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             await db.GetService<IMigrator>().MigrateAsync();
             Assert.True(await new MasterDataSeed(db, TimeProvider.System).EnsureSeededAsync());
 
@@ -168,7 +169,7 @@ public class MasterDataSeedTests
             });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
-            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var check = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.Equal(3, await check.Branches.CountAsync());
         }
         finally
@@ -187,7 +188,7 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
             Assert.False(await new MasterDataSeed(db, TimeProvider.System).EnsureSeededAsync());
 
             var tables = await db.Database
@@ -208,7 +209,7 @@ public class MasterDataSeedTests
         await ThrowawayDatabase.CreateAsync(dbName);
         try
         {
-            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName));
+            await using var db = new MasterDataDbContext(ThrowawayDatabase.MasterData(dbName), SystemBranchScope.Create());
 
             await db.GetService<IMigrator>().MigrateAsync();
 

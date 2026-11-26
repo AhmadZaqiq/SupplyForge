@@ -17,20 +17,21 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 ## 2. Status
 
 ### Current handoff (refresh at every handoff; read before any edit)
-- Last refreshed: 2026-11-24T23:11:00Z
-- Active agent: none
-- Last commit: eb5d9a0 (docs: fix A1-4 Part 1 status and StorageLocation types). A1-4 Part 1 code is 93b28c0; e67007c docs sync.
-- Git status (before this docs sync): 0 modified, 0 staged; `.kilo/` is git-ignored (`.git/info/exclude`), so the plan files under `.kilo/plans/` do not appear in `git status`
-- Uncommitted scope: A1-4 Part 1 committed; this docs sync (HANDOFF.md, docs/HANDOFF.md, docs/A1-PROGRESS.md) is the only uncommitted work
-- Changed/new/deleted files: A1-4 Part 1 committed (93b28c0); this docs sync modifies 3 files; no source/test/migration/config change
-- Decisions: Q-A…Q-D accepted; Q-E decided 2026-11-25 (option a); blocked⇒inactive check removed (Decision Register §8/§9)
+- Last refreshed: 2026-11-26T15:55:00Z
+- Active agent: none (Kilo session; A1-4 Part 2 + A1-5 + A1-6 + A1-7 done, NOT committed)
+- Last commit: 8208234 (docs: handoff sync after owner re-run). A1-4 Part 1 code is 93b28c0.
+- Git status: all A1-4 Part 2 + A1-5 + A1-6 + A1-7 code + tests complete, NOT committed; 0 staged
+- Uncommitted scope: A1-4 Part 2 (branch scope) + A1-5 (inventory ledger + WAC core) + A1-6 (WAC core) + A1-7 (transfer orchestration + corrections) — code + tests complete, NOT committed
+- Changed/new/deleted files:
+  - modified: HANDOFF.md (root + docs), A1-PROGRESS.md, Program.cs, ServiceCollectionExtensions.cs, SupplyForge.Host.csproj, MasterDataDbContext.cs, MasterDataDbContextFactory.cs, MasterDataSeed.cs, MasterData.Infrastructure.csproj, ICurrentBranchScope.cs, PlatformSharedServices.cs, IIdempotencyStore.cs, AmbientSessionThreeModuleTests.cs, MasterDataSeedTests.cs, PartnersAndSharedMasterTests.cs, ProductCatalogueTests.cs, WarehouseLocationTests.cs, README.md
+  - new: BranchScopeHolder.cs, IBranchScopeResolver.cs, HttpBranchScopeResolver.cs, BranchScopeMiddleware.cs, BranchScopeDefaults.cs, NoScopeImpl.cs, BranchScopeProvider.cs, SystemBranchScope.cs, RequestBranchScope.cs, NoBranchScope.cs, BranchScopeArchitectureTests.cs, WarehouseBranchScopeTests.cs, BranchScopeMiddlewareTests.cs, Inventory module (Domain, Contracts, Infrastructure), IWarehouseBranchResolver.cs, WarehouseBranchResolver.cs, 16 Inventory integration tests (A1-5), Inventory.UnitTests project, TransferOrchestrator.cs, AdjustmentOrchestrator.cs, OpeningImportOrchestrator.cs, InventoryDbContext model config, migration 20261126004151_A1TransferOrchestration, Transfer/Adjustment/OpeningImport domain entities, 32 new A1-7 tests (unit + integration), README.md rewrite
+  - deleted: BranchScopeAccessor.cs, BranchScopeContext.cs
+- Decisions: Q-A…Q-D accepted; Q-E decided 2026-11-25 (option a) and IMPLEMENTED; blocked⇒inactive check removed; A1-5: no var, idempotency via ambient TXN rollback (FailAsync removed), branch validation fail-closed via MasterData.Contracts; A1-7 corrections: CloseTransferAsync rejects Cancelled/Closed/Draft/Approved, CreateTransferShortfallAdjustmentAsync validates transfer existence/status/shortfall with HOLDLOCK, PendingApproval state reachable via SubmitForApprovalAsync, OpeningImport warehouse existence validation
 - Build: 0 errors / 0 warnings — verified
-- Test: 249/249 ×2 — verified (owner-reported; A1-4 log was not saved). Owner re-ran the full sweep 2026-11-25 → build 0 errors, 249/249 passed (MasterData.UnitTests 24, Architecture 17, PlatformCore.UnitTests 68, MasterData.IntegrationTests 48, PlatformCore.IntegrationTests 92), format exit 0, docker healthy; saved /tmp/test-run-a1-4-verify.txt
-- Format: clean — verified
-- Migration: 20261124181017_A1WarehousesLocations created, NOT applied
-- Superseded plans: `.kilo/plans/1795541990951-a1-4-warehouses-locations.md` — SUPERSEDED; replacement: `.kilo/plans/1795543141178-knowledge-handoff-audit.md`
-- Q-E (decided 2026-11-25, option a): explicit system scope for seed, migration and later background jobs; fail closed by default; never reachable from HTTP. Part 2 not started.
-- Next step: A1-4 Part 2 (branch scope) — Q-E decided (option a); Part 2 not started
+- Test: Inventory integration 32/32 (A1-7 new) + 40/40 (existing), unit 45/45, architecture 20/20, format clean — all verified
+- Format: clean — verified (`dotnet format --verify-no-changes` exit 0)
+- Migration: A1-4 Part 1 `20261124181017_A1WarehousesLocations` created, NOT applied; A1-5 `20261125171326_A1InventoryLedger` created, NOT applied; A1-7 `20261126004151_A1TransferOrchestration` created, NOT applied; Q-C `platform.User.IsCompanyWide` migration file only, awaiting owner approval
+- Next step: owner review of all uncommitted A1 work; commit after approval
 
 | Item | State |
 |---|---|
@@ -82,8 +83,8 @@ SupplyForge/
 │   └─ README.md, SOURCES.md
 ├─ README.md                      architecture overview + runbook (NFR-061/062)
 ├─ src/                           Host + Modules + Shared
-│   └─ Modules/                   built: PlatformCore, Integrations, MasterData
-│       ├─ Inventory/             planned, not built (A1)
+│   └─ Modules/                   built: PlatformCore, Integrations, MasterData, Inventory
+│       ├─ Inventory/             built (A1-5 ledger + WAC + A1-7 documents): stock movements, balances, WAC, transfers, adjustments, opening imports
 │       ├─ Procurement/           planned, not built (A2)
 │       ├─ Inbound/               planned, not built (A2)
 │       ├─ Sales/                 planned, not built (A3)
@@ -91,7 +92,7 @@ SupplyForge/
 │       ├─ Shipping/              planned, not built (A4)
 │       ├─ Finance/               planned, not built (B1)
 │       └─ Reporting/             planned, not built (B3)
-├─ tests/                         ArchitectureTests, PlatformCore.UnitTests, PlatformCore.IntegrationTests, MasterData.UnitTests, MasterData.IntegrationTests
+├─ tests/                         ArchitectureTests, PlatformCore.UnitTests, PlatformCore.IntegrationTests, MasterData.UnitTests, MasterData.IntegrationTests, Inventory.UnitTests, Inventory.IntegrationTests
 ├─ docs/
 │   ├─ HANDOFF.md                 this file
 │   ├─ A0-PROGRESS.md             increment log: status + evidence
@@ -200,7 +201,7 @@ overwrites the evidence. Capture, then read, then decide.
 1. Reply to the owner briefly. Lead with the result.
 2. Do not trust this file over the disk. Run `pwd`, `git status`, `ls`, and the checks in section 9 #1–#2 to learn what is actually done. Ask the owner for the result of #3–#4 if you cannot run them yourself.
 3. Fix whatever section 9 shows broken before starting any slice.
-4. Then continue the current slice. **A0 is closed** (`docs/A0-PROGRESS.md`, including the **A0-8** hardening record of 2026-11-22 — do not re-run it); **A1 is in progress** — read `docs/A1-PROGRESS.md` first (increment plan §1, owner blockers §0, evidence §5–§7), then the slice files listed in `docs/prd/INDEX.md` (or run `/slice A1`), and follow its plan. Do not re-do A0. **Next: A1-4 Part 2 (branch scope) — Q-E decided 2026-11-25 (option a); then A1-5** — keep the DB-first style A1-3 used (plan → owner approval → code → tests → docs).
+4. Then continue the current slice. **A0 is closed** (`docs/A0-PROGRESS.md`, including the **A0-8** hardening record of 2026-11-22 — do not re-run it); **A1-1 through A1-7 are complete** — read `docs/A1-PROGRESS.md` first (increment plan §1, owner blockers §0, evidence §5–§10), then the slice files listed in `docs/prd/INDEX.md`. A1-4 Part 2, A1-5, A1-6, and A1-7 are all completed and verified but NOT committed. Next step: owner review and commit of all completed A1 work, then A1-8 (Availability + replenishment + returns guard) — keep the DB-first style (plan → owner approval → code → tests → docs).
 5. Follow the project `AGENTS.md` and `my-ai-knowledge/AGENTS.md`. In particular: do only what was asked; never commit, push, deploy or delete data without permission; run build and tests after changing code and never claim a check passed unless you ran it; do not invent APIs, files, requirements or results.
 6. Do not read the whole PRD or the whole library. State which files you read before you write code.
 7. Do not claim anything about OpenCode behaviour that you did not verify; the official docs are at https://opencode.ai/docs (rules, permissions, commands, ide, skills) and VS Code Linux setup at https://code.visualstudio.com/docs/setup/linux.
