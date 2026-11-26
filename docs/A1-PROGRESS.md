@@ -3,7 +3,7 @@
 Slice: **A1 Master + Inventory core** (PRD §11.2). Created: 2026-11-20.
 Authority: PRD v0.8 + accepted ADR-001…006, 008, 009. This file tracks increment
 status only; it is not a requirements source.
-**Active agent:** none · **Last handoff:** 2026-11-25T00:34:09Z (A1-4 Part 1 committed 93b28c0; Q-E decided 2026-11-25 option a; A1-4 Part 2 fix done, not committed)
+**Active agent:** none · **Last handoff:** 2026-11-26T21:00:00Z (A1-4 Part 1 committed 93b28c0; Q-E decided 2026-11-25 option a; all A1 work complete and committed at b48b276)
 
 **Files read before planning:** `AGENTS.md` (root), `HANDOFF.md`,
 `docs/prd/INDEX.md`, `docs/prd/00-how-to-use.md`, `03-constraints-assumptions-defaults.md`,
@@ -62,7 +62,7 @@ WAC → documents that post movements.
 | A1-4 | **Warehouses + locations** — branch-owned, the five location types (D-16), block location, no-deactivate-while-holding-stock | MD-040, MD-041, MD-042, DM-1 | **Part 1 committed 2026-11-24 (93b28c0); Part 2 pending (Q-E decided 2026-11-25, option a)** |
 | A1-5 | **Inventory ledger + balances** — immutable `StockMovement`, `StockBalance` in the same TXN, reconciliation job comparing balances to movement sums, history queries, opening-balance dry-run | INV-001…004, INV-010…014, INV-012, INV-013, MOD-TXN-01…05, INV-NEG | **Done 2026-11-25 (evidence §10)** |
 | A1-6 | **WAC core** — bucket = ProductId+WarehouseId, opening blend, receipt blend, issues, transfers, zero-stock, scale 8, no negative average, pool≡ StockValue | WAC-01…06, WAC-08…11 (**not** WAC-07 → B3), INV-080/081 | **Done 2026-11-25** (evidence §10 of A1-5 section); WAC core implemented as part of A1-5 inventory ledger |
-| A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | **Done 2026-11-26** — TransferOrchestrator, AdjustmentOrchestrator, OpeningImportOrchestrator; domain entities Transfer/Adjustment/AdjustmentLine/OpeningImport/OpeningImportLine; 20 integration tests + 9 unit tests; corrective fixes: CloseTransferAsync status validation, shortfall adjustment HOLDLOCK+validation, PendingApproval reachable, OpeningImport warehouse validation |
+| A1-7 | **Documents that post movements** — adjustments (statuses, reason, threshold), transfers (location move + inter-warehouse states), opening import | INV-030…032, INV-040, INV-042, INV-014 (**INV-041 → B1**) | **Done 2026-11-26** — TransferOrchestrator, AdjustmentOrchestrator, OpeningImportOrchestrator; domain entities Transfer/Adjustment/AdjustmentLine/OpeningImport/OpeningImportLine; 32 integration tests + 9 unit tests; corrective fixes: CloseTransferAsync status validation (rejects Cancelled/Closed/Draft/Approved), shortfall adjustment HOLDLOCK+validation (transfer existence, InTransit/Received status, actual shortfall, duplicate prevention), PendingApproval reachable via SubmitForApprovalAsync, OpeningImport warehouse existence validation |
 | A1-8 | **Availability + replenishment + returns guard** — availability query with all buckets + incoming, reorder breach alert, Returns-location inbound guard | INV-100, INV-060, INV-061, INV-090, INV-091, `06a` §6.2 | Planned |
 | A1-9 | **Admin user lifecycle** — role/branch assignment, last-admin protection | MD-004, BRN-009, BRN-010, PLT-ROLE-3 | Planned |
 
