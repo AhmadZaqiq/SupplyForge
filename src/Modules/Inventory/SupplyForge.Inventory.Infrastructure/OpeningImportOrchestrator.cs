@@ -20,20 +20,20 @@ public sealed class OpeningImportOrchestrator
     private readonly InventoryDbContext _inventory;
     private readonly StockMovementPoster _poster;
     private readonly IWarehouseBranchResolver _warehouseBranchResolver;
-    private readonly ICurrentBranchScope _branchScope;
+    private readonly IBranchGuard _branchGuard;
     private readonly IDbSessionFactory _sessionFactory;
 
     public OpeningImportOrchestrator(
         InventoryDbContext inventory,
         StockMovementPoster poster,
         IWarehouseBranchResolver warehouseBranchResolver,
-        ICurrentBranchScope branchScope,
+        IBranchGuard branchGuard,
         IDbSessionFactory sessionFactory)
     {
         _inventory = inventory;
         _poster = poster;
         _warehouseBranchResolver = warehouseBranchResolver;
-        _branchScope = branchScope;
+        _branchGuard = branchGuard;
         _sessionFactory = sessionFactory;
     }
 
@@ -50,10 +50,7 @@ public sealed class OpeningImportOrchestrator
             throw new ArgumentException("At least one opening import line is required.", nameof(lines));
         }
 
-        if (!_branchScope.CanAccess(branchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: opening import branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(branchId);
 
         var import = new OpeningImport
         {
@@ -100,10 +97,7 @@ public sealed class OpeningImportOrchestrator
         {
             throw new InvalidOperationException("Opening import not found.");
         }
-        if (!_branchScope.CanAccess(import.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: opening import branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(import.BranchId);
         if (import.Status != OpeningImport.Statuses.Draft)
         {
             throw new InvalidOperationException("Only Draft opening imports can be validated.");
@@ -129,10 +123,7 @@ public sealed class OpeningImportOrchestrator
             {
                 throw new InvalidOperationException($"Warehouse {line.WarehouseId} not found.");
             }
-            if (!_branchScope.CanAccess(warehouseBranchId.Value) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-            {
-                throw new InvalidOperationException("Branch scope rejected: warehouse not accessible (BRN-012).");
-            }
+            _branchGuard.RequireAccess(warehouseBranchId.Value);
         }
 
         import.Status = OpeningImport.Statuses.Validated;
@@ -153,6 +144,7 @@ public sealed class OpeningImportOrchestrator
         {
             throw new InvalidOperationException("Opening import not found.");
         }
+        _branchGuard.RequireAccess(import.BranchId);
         if (import.Status != OpeningImport.Statuses.Validated)
         {
             throw new InvalidOperationException("Only Validated opening imports can be posted.");
@@ -207,10 +199,7 @@ public sealed class OpeningImportOrchestrator
         {
             throw new InvalidOperationException("Opening import not found.");
         }
-        if (!_branchScope.CanAccess(import.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: opening import branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(import.BranchId);
         if (import.Status == OpeningImport.Statuses.Posted || import.Status == OpeningImport.Statuses.Rejected)
         {
             throw new InvalidOperationException("Posted or Rejected opening imports cannot be rejected again.");

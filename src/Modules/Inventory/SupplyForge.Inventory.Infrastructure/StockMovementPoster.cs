@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SupplyForge.Inventory.Domain;
 using SupplyForge.Inventory.Infrastructure.Data;
+using SupplyForge.MasterData.Contracts.Location;
 using SupplyForge.MasterData.Contracts.Warehouse;
 using SupplyForge.PlatformCore.Contracts.Security;
 using SupplyForge.Shared.Idempotency;
@@ -10,33 +11,58 @@ namespace SupplyForge.Inventory.Infrastructure;
 public sealed class StockMovementPoster
 {
     private readonly InventoryDbContext _db;
-    private readonly ICurrentBranchScope _branchScope;
+    private readonly ICurrentUser _currentUser;
+    private readonly ICorrelationIdProvider _correlationIdProvider;
     private readonly IIdempotencyStore _idempotency;
     private readonly IWarehouseBranchResolver _warehouseBranchResolver;
+    private readonly ILocationQuery _locationQuery;
+    private readonly IBranchGuard _branchGuard;
 
     public StockMovementPoster(
         InventoryDbContext db,
-        ICurrentBranchScope branchScope,
+        ICurrentUser currentUser,
+        ICorrelationIdProvider correlationIdProvider,
         IIdempotencyStore idempotency,
-        IWarehouseBranchResolver warehouseBranchResolver)
+        IWarehouseBranchResolver warehouseBranchResolver,
+        ILocationQuery locationQuery,
+        IBranchGuard branchGuard)
     {
         _db = db;
-        _branchScope = branchScope;
+        _currentUser = currentUser;
+        _correlationIdProvider = correlationIdProvider;
         _idempotency = idempotency;
         _warehouseBranchResolver = warehouseBranchResolver;
+        _locationQuery = locationQuery;
+        _branchGuard = branchGuard;
     }
 
     public async Task PostAsync(StockMovement movement, string idempotencyKey, string payloadHash, CancellationToken ct = default)
     {
-        if (!_branchScope.IsSystem && !_branchScope.IsCompanyWide && _branchScope.BranchIds.Count == 0)
-        {
-            throw new InvalidOperationException("Branch scope missing: cannot post stock movement (BRN-010).");
-        }
-
         Guid? warehouseBranchId = await _warehouseBranchResolver.GetBranchIdAsync(movement.WarehouseId, ct);
-        if (warehouseBranchId is null || !_branchScope.CanAccess(warehouseBranchId.Value))
+        if (warehouseBranchId is null)
         {
-            throw new InvalidOperationException("Branch scope rejected: warehouse not accessible (BRN-012).");
+            throw new BranchNotFoundException($"Warehouse {movement.WarehouseId} not found (BRN-012).");
+        }
+        _branchGuard.RequireAccess(warehouseBranchId.Value);
+
+        movement.BranchId = warehouseBranchId.Value;
+        movement.CreatedByUserId = _currentUser.UserId;
+        movement.CorrelationId = _correlationIdProvider.GetCorrelationId();
+
+        // INV-091: Reject Returns-location inbound movements without an authorized
+        // source document and reason. In P1 no customer-return workflow exists
+        // (INV-090) and no Adjustment→Returns path (TD-7), so all inbound to a
+        // Returns location is rejected.
+        if (movement.Qty > 0m)
+        {
+            var locationInfos = await _locationQuery.GetLocationInfosAsync(
+                new[] { movement.LocationId }, ct);
+            if (locationInfos.TryGetValue(movement.LocationId, out var info)
+                && info.Type == LocationTypes.Returns)
+            {
+                throw new InvalidOperationException(
+                    "Returns-location inbound movements require an authorized source document and reason (INV-091).");
+            }
         }
 
         IdempotencyClaimResult claim = await _idempotency.TryClaimAsync(idempotencyKey, payloadHash, ct);
@@ -61,9 +87,17 @@ public sealed class StockMovementPoster
         {
             try
             {
-                await PostInternalAsync(movement, ct);
-                await _idempotency.CompleteAsync(idempotencyKey, null, ct);
-                return;
+                try
+                {
+                    await PostInternalAsync(movement, ct);
+                    await _idempotency.CompleteAsync(idempotencyKey, null, ct);
+                    return;
+                }
+                catch
+                {
+                    await _idempotency.ReleaseAsync(idempotencyKey, ct);
+                    throw;
+                }
             }
             catch (DbUpdateException ex) when (IsPrimaryKeyViolation(ex) && attempt < MaxRetries - 1)
             {
@@ -81,6 +115,17 @@ public sealed class StockMovementPoster
 
         await PostInternalAsync(movement, ct);
         await _idempotency.CompleteAsync(idempotencyKey, null, ct);
+    }
+
+    private static string GetCorrelationId()
+    {
+        // The CorrelationAndProblemDetailsMiddleware stores the correlation id in
+        // HttpContext.Items["CorrelationId"]. In infrastructure code without direct
+        // HttpContext access, fall back to the idempotency key so every posted
+        // movement carries a traceable correlation identifier.
+        return System.Diagnostics.Activity.Current?.Id
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_CORRELATION_ID")
+            ?? Guid.NewGuid().ToString("N");
     }
 
     private async Task DetachFailedEntitiesAsync(Guid movementId, (Guid ProductId, Guid WarehouseId, Guid LocationId) balanceKey)

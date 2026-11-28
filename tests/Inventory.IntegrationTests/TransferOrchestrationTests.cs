@@ -12,6 +12,7 @@ using SupplyForge.Inventory.Infrastructure.Data;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Contracts.Security;
+using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
@@ -79,6 +80,11 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+        sc.AddScoped<ICorrelationIdProvider>(_ => new TestCorrelationIdProvider());
+        sc.AddScoped<IBranchGuard>(sp => new BranchGuard(sp.GetRequiredService<ICurrentBranchScope>()));
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.TransferOrchestrator>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.AdjustmentOrchestrator>();
 
@@ -1256,7 +1262,7 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.ApproveTransferAsync(transferId));
         }
         finally
@@ -1288,7 +1294,7 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.CancelTransferAsync(transferId));
         }
         finally
@@ -1350,7 +1356,7 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         var (branch2Scope, branch2Orchestrator, _, _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.CloseTransferAsync(transferId));
         }
         finally
@@ -1413,7 +1419,7 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         try
         {
             var branch2AdjOrchestrator = branch2Scope.ServiceProvider.GetRequiredService<AdjustmentOrchestrator>();
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2AdjOrchestrator.CreateTransferShortfallAdjustmentAsync(
                     transferId, "DAMAGED", "Wrong branch", _branch2Id));
         }
@@ -1421,5 +1427,16 @@ public sealed class TransferOrchestrationTests : IAsyncLifetime
         {
             branch2Scope.Dispose();
         }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUser
+    {
+        public Guid? UserId => null;
+        public bool IsAuthenticated => false;
+    }
+
+    private sealed class TestCorrelationIdProvider : ICorrelationIdProvider
+    {
+        public string? GetCorrelationId() => null;
     }
 }

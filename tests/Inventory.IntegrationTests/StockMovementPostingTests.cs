@@ -12,6 +12,7 @@ using SupplyForge.Inventory.Infrastructure.Data;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Contracts.Security;
+using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
@@ -82,6 +83,11 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+        sc.AddScoped<ICorrelationIdProvider>(_ => new TestCorrelationIdProvider());
+        sc.AddScoped<IBranchGuard>(sp => new BranchGuard(sp.GetRequiredService<ICurrentBranchScope>()));
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
         sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationDeactivationGuard,
             SupplyForge.Inventory.Infrastructure.Location.LocationDeactivationGuard>();
 
@@ -591,7 +597,6 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
     {
         // Arrange
         var (scope, poster, inventoryDb, _) = CreateSystemScope();
-        var platformCoreDb = scope.ServiceProvider.GetRequiredService<PlatformCoreDbContext>();
         try
         {
             var badMovement = CreateMovement(_productId, _warehouse1Id, _location1Id, -10); // Will fail
@@ -602,16 +607,9 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
             await Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await poster.PostAsync(badMovement, key, hash));
 
-            // In production with ambient transactions, the idempotency claim would roll back
-            // with the transaction, allowing retry with the same key.
-            // Without ambient transactions (test env), the claim persists as "InProgress".
-            // Work around by directly updating the key status to "Failed" (the store's
-            // EvaluateClaim treats non-Completed as InProgress; this is a known limitation).
-            // Note: [Key] is a reserved keyword in SQL Server, must be quoted. Table is IdempotencyKey (singular).
-            // EvaluateClaim treats any non-Completed status as InProgress, so delete the row instead.
-            await platformCoreDb.Database.ExecuteSqlAsync(
-                $"DELETE FROM platform.IdempotencyKey WHERE [Key] = '{key}'");
-            platformCoreDb.ChangeTracker.Clear();
+            // ReleaseAsync (called by PostAsync on failure) already deletes the claim row
+            // and commits immediately, so no ambient transaction is needed to clear it.
+            // Retry with the same key claims a fresh row and proceeds.
 
             // Retry with valid movement (same key, same payload hash)
             var goodMovement = CreateMovement(_productId, _warehouse1Id, _location1Id, 30);
@@ -715,7 +713,7 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         {
             // Act & Assert - try to post to warehouse in branch 2
             var movement = CreateMovement(_productId, _warehouse2Id, _location2Id, 10);
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(async () =>
                 await poster.PostAsync(movement, "cross-branch-1", "hash-cross-1"));
 
             // Verify no movement recorded
@@ -724,7 +722,7 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
 
             // Act & Assert - try to post to warehouse in branch 3
             movement = CreateMovement(_productId, _warehouse3Id, _location3Id, 10);
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(async () =>
                 await poster.PostAsync(movement, "cross-branch-2", "hash-cross-2"));
 
             movements = await inventoryDb.StockMovements.Where(m => m.ProductId == _productId).ToListAsync();
@@ -813,7 +811,7 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
 
             // Act & Assert
             var movement = CreateMovement(_productId, nonExistentWarehouseId, _location1Id, 10);
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(async () =>
                 await poster.PostAsync(movement, "non-existent-wh", "hash-ne-wh"));
         }
         finally
@@ -908,5 +906,168 @@ public sealed class StockMovementPostingTests : IAsyncLifetime
         {
             scope.Dispose();
         }
+    }
+
+    [Fact]
+    public async Task INV_091_ReturnsLocation_Inbound_Rejected()
+    {
+        // Arrange - create a Returns location
+        var returnsLocationId = Guid.NewGuid();
+        await using (var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(_dbName), SystemBranchScope.Create()))
+        {
+            md.StorageLocations.Add(new StorageLocation
+            {
+                Id = returnsLocationId,
+                Code = "LOC-RETURNS",
+                Name = "Returns Location",
+                Type = "Returns",
+                WarehouseId = _warehouse1Id,
+                IsActive = true,
+                IsBlocked = false,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+            await md.SaveChangesAsync();
+        }
+
+        // Act & Assert - inbound (positive qty) to Returns location rejected
+        var (scope, poster, _, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, returnsLocationId, 10m);
+            movement.MovementType = StockMovement.MovementTypes.Receipt;
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                poster.PostAsync(movement, "inv-091-inbound", "hash-inv-091-inbound"));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_091_ReturnsLocation_Outbound_NotBlockedByInv091()
+    {
+        // Arrange - create a Returns location and stock there
+        var returnsLocationId = Guid.NewGuid();
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            // Add Returns location via MasterData
+            await using var md = new MasterDataDbContext(ThrowawayDatabase.MasterData(_dbName), SystemBranchScope.Create());
+            md.StorageLocations.Add(new StorageLocation
+            {
+                Id = returnsLocationId,
+                Code = "LOC-RETURNS2",
+                Name = "Returns Location 2",
+                Type = "Returns",
+                WarehouseId = _warehouse1Id,
+                IsActive = true,
+                IsBlocked = false,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+            await md.SaveChangesAsync();
+
+            // Insert stock at Returns location directly
+            inventoryDb.StockBalances.Add(new StockBalance
+            {
+                ProductId = _productId,
+                WarehouseId = _warehouse1Id,
+                LocationId = returnsLocationId,
+                OnHand = 10m,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+            await inventoryDb.SaveChangesAsync();
+
+            // Act - outbound (negative qty) from Returns location should NOT be blocked by INV-091
+            var movement = CreateMovement(_productId, _warehouse1Id, returnsLocationId, -5m);
+            movement.MovementType = StockMovement.MovementTypes.AdjustmentOut;
+
+            // INV-091 only blocks inbound (Qty > 0) to Returns. Outbound should reach
+            // WAC checks (different error), proving INV-091 did not block it.
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                poster.PostAsync(movement, "inv-091-outbound", "hash-inv-091-outbound"));
+
+            // Assert - error is WAC-related (no ProductCost), not INV-091
+            Assert.DoesNotContain("INV-091", ex.Message);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_091_StorageLocation_Inbound_Allowed()
+    {
+        // Arrange - inbound to Storage location allowed
+        var (scope, poster, _, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 10m);
+            movement.MovementType = StockMovement.MovementTypes.Receipt;
+
+            await poster.PostAsync(movement, "inv-091-storage-inbound", "hash-inv-091-storage-inbound");
+
+            // Assert - movement posted successfully (no exception)
+            Assert.True(true);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_RawSqlUpdate_RejectedByDbTrigger()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-raw-update", "hash-raw-update");
+
+            // Act & Assert - raw SQL UPDATE rejected by INSTEAD OF trigger
+            await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(async () =>
+                await inventoryDb.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE inventory.StockMovement SET Qty = 200 WHERE MovementId = {movement.MovementId}"));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_010_StockMovement_RawSqlDelete_RejectedByDbTrigger()
+    {
+        // Arrange
+        var (scope, poster, inventoryDb, _) = CreateSystemScope();
+        try
+        {
+            var movement = CreateMovement(_productId, _warehouse1Id, _location1Id, 100);
+            await poster.PostAsync(movement, "test-key-raw-delete", "hash-raw-delete");
+
+            // Act & Assert - raw SQL DELETE rejected by INSTEAD OF trigger
+            await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(async () =>
+                await inventoryDb.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM inventory.StockMovement WHERE MovementId = {movement.MovementId}"));
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUser
+    {
+        public Guid? UserId => null;
+        public bool IsAuthenticated => false;
+    }
+
+    private sealed class TestCorrelationIdProvider : ICorrelationIdProvider
+    {
+        public string? GetCorrelationId() => null;
     }
 }

@@ -18,6 +18,7 @@ using SupplyForge.PlatformCore.Infrastructure.Application.Auth;
 using SupplyForge.PlatformCore.Infrastructure.Application.Integrations;
 using SupplyForge.PlatformCore.Infrastructure.Application.Notifications;
 using SupplyForge.PlatformCore.Infrastructure.Data;
+using SupplyForge.Inventory.Contracts.Availability;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.Shared.Auditing;
@@ -171,6 +172,8 @@ public static class ServiceCollectionExtensions
 
         // A1-5 Increment 2: atomic movement poster.
         services.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        services.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
 
         // A1-7: transfer / adjustment / opening import orchestrators.
         services.AddScoped<SupplyForge.Inventory.Infrastructure.TransferOrchestrator>();
@@ -182,6 +185,13 @@ public static class ServiceCollectionExtensions
         // A1-5 Increment 2: warehouse branch resolver for cross-branch validation.
         services.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
+
+        // A1-8: availability query (INV-100)
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.AvailabilityCalculator>();
+        services.AddScoped<SupplyForge.Inventory.Contracts.Availability.IAvailabilityQueryService,
+            SupplyForge.Inventory.Infrastructure.AvailabilityQueryService>();
+        // A1-8: replenishment (INV-060, INV-061)
+        services.AddScoped<SupplyForge.Inventory.Infrastructure.ReplenishmentService>();
 
         // A1-4 Part 2 (BRN-010, Q-C/Q-D/Q-E): branch scope. The scoped holder
         // carries the per-request scope; ICurrentBranchScope resolves to
@@ -198,6 +208,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentBranchScope>(sp => sp.GetRequiredService<BranchScopeHolder>().Scope);
         services.AddScoped<IBranchScopeProvider, BranchScopeProvider>();
         services.AddScoped<IBranchScopeResolver, HttpBranchScopeResolver>();
+
+        // A1-9: admin user lifecycle (MD-004, BRN-009, BRN-010, PLT-ROLE-3)
+        services.AddScoped<SupplyForge.PlatformCore.Infrastructure.Services.UserService>();
+        // A1-10: central branch guard (BRN-011…014)
+        services.AddScoped<SupplyForge.PlatformCore.Contracts.Security.IBranchGuard,
+            SupplyForge.PlatformCore.Infrastructure.Services.BranchGuard>();
 
         // ADR-003 (A0-6, extended by A1-1): the ambient session joins every
         // module DbContext on one shared connection/transaction. Host owns the
@@ -264,6 +280,19 @@ public static class ServiceCollectionExtensions
             });
         }
 
+        services.AddCurrentUserAdapter();
+        return services;
+    }
+}
+
+// A1-10: current user + correlation id providers for stock movement auditing.
+public static class CurrentUserAdapterRegistration
+{
+    public static IServiceCollection AddCurrentUserAdapter(this IServiceCollection services)
+    {
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUser, HttpCurrentUser>();
+        services.AddScoped<ICorrelationIdProvider, HttpCorrelationIdProvider>();
         return services;
     }
 }

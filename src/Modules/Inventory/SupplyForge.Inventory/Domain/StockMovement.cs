@@ -7,11 +7,14 @@ public class StockMovement
     public Guid ProductId { get; set; }
     public Guid WarehouseId { get; set; }
     public Guid LocationId { get; set; }
+    public Guid BranchId { get; set; }
     public decimal Qty { get; set; }
     public decimal UnitCost { get; set; }
     public string SourceDocumentType { get; set; } = string.Empty;
     public Guid? SourceDocumentId { get; set; }
     public Guid? ReversalOfMovementId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public string? CorrelationId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 

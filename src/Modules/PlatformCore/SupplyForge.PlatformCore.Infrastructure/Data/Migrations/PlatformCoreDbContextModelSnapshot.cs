@@ -180,6 +180,9 @@ namespace SupplyForge.PlatformCore.Infrastructure.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
 
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.HasKey("Key");
 
                     b.HasIndex("CreatedAt");
@@ -427,6 +430,11 @@ namespace SupplyForge.PlatformCore.Infrastructure.Data.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsCompanyWide")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTimeOffset?>("LockedUntil")
                         .HasColumnType("datetimeoffset");

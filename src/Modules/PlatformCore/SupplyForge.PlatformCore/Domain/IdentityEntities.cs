@@ -9,6 +9,8 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
+    /// <summary>BRN-010: company-wide scope flag. User assigned one+ branches or company-wide.</summary>
+    public bool IsCompanyWide { get; set; }
     public int FailedLoginCount { get; set; }
     public DateTimeOffset? LockedUntil { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

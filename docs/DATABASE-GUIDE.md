@@ -9,11 +9,16 @@ cross-checked against the entity classes. This guide is **descriptive of the
 current schema, not a requirements source** — it goes stale the moment a
 migration changes the model, so re-read the snapshot when that happens.
 
-**Scope:** 4 modules, 4 schemas, **40 tables** in one SQL Server database
+**Scope:** 4 modules, 4 schemas, **44 tables** in one SQL Server database
 (`SupplyForge`) — of which **32 are applied** to the development database
-(`platform` 14, `master_data` 15, `integrations` 3) and **8 `inventory` tables
+(`platform` 14, `master_data` 15, `integrations` 3) and **12 `inventory` tables
 exist only in migration files** (`20261125171326_A1InventoryLedger`,
-`20261126004151_A1TransferOrchestration`) — **not yet applied**, pending owner
+`20261126004151_A1TransferOrchestration`,
+`20261126213917_A1_UnitCostPrecision`,
+`20261126235623_A1_ReplenishmentAvailability`,
+`20261127171551_A1_StockMovementAuditing`,
+`20261127182116_A1_IdempotencyKeyUpdatedAt`,
+`20261127192836_A1_ReplenishmentIndexes`) — **not yet applied**, pending owner
 approval (see §6). Nothing outside these four modules owns tables.
 
 ---
@@ -65,10 +70,10 @@ you writing a branch id that does not exist.
 ### 3.1 Identity and access
 
 **`User`** — one row per person who can log in; the anchor of the whole identity model.
-PK `Id` (Guid). Key columns: `UserName` (unique), `Email` (unique), `PasswordHash`
-(stored PBKDF2 string), `DisplayName`, `IsActive`, `FailedLoginCount`,
-`LockedUntil` (null = not locked), `CreatedAt`, `UpdatedAt`, `RowVersion`
-(concurrency token).
+PK `Id`. Key columns: `UserName` (unique), `Email` (unique), `PasswordHash`
+(stored PBKDF2 string), `DisplayName`, `IsActive`, `IsCompanyWide` (branch scope
+flag — BRN-010), `FailedLoginCount`, `LockedUntil` (null = not locked),
+`CreatedAt`, `UpdatedAt`, `RowVersion` (concurrency token).
 Relationships: parent of many `UserRole`, many `RefreshToken`, many `UserBranchScope`
 (all FK → `User.Id`). Referenced logically (no FK) by `Notification.UserId` and
 `AuditLog.ActorId`.
@@ -535,7 +540,98 @@ erDiagram
 
 ---
 
-## 6. Example rows
+## 6. Inventory — schema `inventory` (12 tables)
+
+**Note:** All 12 tables exist only in migration files — they are **not applied** to the development database (`SupplyForge`). Owner approval is required to apply them (`dotnet ef database update`).
+
+Inventory owns no cross-module FKs — all cross-module references are plain `Guid` columns.
+
+### 6.1 `StockMovement` — the append-only ledger
+
+Every stock change is one row. Once inserted, it can never be updated or deleted (enforced by `INSTEAD OF UPDATE/DELETE` triggers + `DENY` at database level, INV-010/INV-012).
+
+PK `Id`. Key columns:
+- `MovementType` (`Issue`, `Receipt`, `AdjustmentIn`, `AdjustmentOut`, `TransferIn`, `TransferOut`, `OpeningBalance`)
+- `ProductId`, `WarehouseId`, `LocationId` — where the stock is
+- `BranchId` — denormalized from warehouse at post time (A1-10)
+- `Qty` (decimal 18,4, negative for issues/out, positive for receipts/in)
+- `UnitCost` (decimal 18,8) — source WAC captured at post time
+- `SourceDocumentType`, `SourceDocumentId` — plain Guid cross-module ref (DM-4)
+- `CreatedByUserId` (Guid, no FK) — who posted it (ICurrentUser)
+- `CorrelationId` (string 128, nullable) — traces back to the HTTP request
+- `CreatedAt`, `RowVersion` (concurrency constraint)
+
+### 6.2 `StockBalance` — on-hand per product+warehouse+location
+
+One row per product+warehouse+location combination. PK `Id`. Key columns:
+- `ProductId`, `WarehouseId`, `LocationId` — where the stock is
+- `QtyOnHand` (decimal 18,4) — current on-hand quantity
+
+### 6.3 `ProductCost` — WAC cost bucket per product+warehouse
+
+One row per product+warehouse. PK `Id`. Key columns:
+- `ProductId`, `WarehouseId`
+- `QtyOnHand`, `AvgCost` (decimal 18,8) — weighted average cost
+
+### 6.4 `Transfer` — transfer document lifecycle
+
+Draft → Approved → (same-warehouse: Closed) / (inter-warehouse: In Transit → Received → Closed)
+
+PK `TransferId`. Key columns:
+- `SourceWarehouseId`, `DestWarehouseId`, `ProductId`, `Qty` (total)
+- `ShippedQty`, `ReceivedQty` (cumulative)
+- `Status` (`Draft`, `Approved`, `InTransit`, `Received`, `Closed`, `Cancelled`)
+- `BranchId` — branch isolation (BRN-012)
+- `CreatedAt`, `UpdatedAt`, `RowVersion`
+
+### 6.5 `Adjustment` — adjustment document lifecycle
+
+Draft → Approved → Posted → Rejected (INV-040). Also used for transfer-shortfall reconciliation (INV-032): `SourceDocumentType = "Transfer"`, `SourceDocumentId = TransferId`, `Status = Posted`, creates **no** StockMovements.
+
+PK `AdjustmentId`. Key columns:
+- `ReasonCode`, `Comment`, `Status`
+- `SourceDocumentType`, `SourceDocumentId` — plain Guid cross-module ref (DM-4)
+- `BranchId` — branch isolation
+- `CreatedAt`, `UpdatedAt`, `RowVersion`
+
+### 6.6 `AdjustmentLine` — one line per product+warehouse+location on an adjustment
+
+PK `AdjustmentLineId`. Key columns:
+- `AdjustmentId` (FK → Adjustment.Id, Restrict)
+- `ProductId`, `WarehouseId`, `LocationId`, `Qty` (positive = In, negative = Out)
+- `MovementType` (`AdjustmentIn`, `AdjustmentOut`)
+- `CreatedAt`
+
+### 6.7 `OpeningImport` / `OpeningImportLine` — opening balance import (INV-014)
+
+`OpeningImport`: Draft → Validated (dry-run, no movements) → Posted → Rejected.
+`OpeningImportLine`: one line per product+warehouse+location combo.
+
+### 6.8 `ReorderPoint` — reorder point per product+warehouse (INV-060)
+
+PK `ReorderPointId`. Key columns:
+- `ProductId`, `WarehouseId` (null = company-wide)
+- `ReorderPointQty` (decimal 18,4)
+- `IsAlerted` — true when a shortfall alert is active
+- `CreatedAt`, `UpdatedAt`, `RowVersion`
+
+Unique index: `ProductId` WHERE `WarehouseId IS NULL` (company-wide, one per product).
+Unique index: `ProductId`, `WarehouseId` WHERE `WarehouseId IS NOT NULL` (per-warehouse).
+
+### 6.9 `IncomingProjection` — idempotent open-PO projection (INV-063)
+
+One row per product+warehouse+expected delivery. PK `IncomingProjectionId`. Key columns:
+- `ProductId`, `WarehouseId`
+- `ExpectedDeliveryId` — reference to purchase order (plain Guid, DM-4)
+- `ExpectedQty` (decimal 18,4)
+- `ExpectedDate`
+- `CreatedAt`, `UpdatedAt`, `RowVersion`
+
+Unique index: `ExpectedDeliveryId`, `ProductId`, `WarehouseId`.
+
+---
+
+## 7. Example rows
 
 **All GUIDs and hashes below are fake**, invented so the shapes are readable —
 real ids are generated at runtime. They are shown so you can see which columns a

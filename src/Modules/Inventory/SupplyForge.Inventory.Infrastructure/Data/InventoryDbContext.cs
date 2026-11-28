@@ -27,6 +27,10 @@ public class InventoryDbContext : DbContext
     public DbSet<OpeningImport> OpeningImports => Set<OpeningImport>();
     public DbSet<OpeningImportLine> OpeningImportLines => Set<OpeningImportLine>();
 
+    // A1-8: replenishment + availability
+    public DbSet<ReorderPoint> ReorderPoints => Set<ReorderPoint>();
+    public DbSet<IncomingProjection> IncomingProjections => Set<IncomingProjection>();
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         RejectStockMovementMutations();
@@ -73,10 +77,15 @@ public class InventoryDbContext : DbContext
             e.Property(x => x.MovementType).HasMaxLength(30).IsRequired();
             e.Property(x => x.Qty).HasPrecision(18, 4);
             e.Property(x => x.UnitCost).HasPrecision(18, 8);
+            e.Property(x => x.BranchId).IsRequired();
+            e.Property(x => x.CreatedByUserId);
             e.Property(x => x.SourceDocumentType).HasMaxLength(50).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(128);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.HasIndex(x => new { x.ProductId, x.WarehouseId, x.LocationId });
             e.HasIndex(x => new { x.MovementType, x.CreatedAt });
+            e.HasIndex(x => x.CorrelationId);
+            e.HasIndex(x => x.BranchId);
         });
 
         modelBuilder.Entity<StockBalance>(e =>
@@ -168,6 +177,37 @@ public class InventoryDbContext : DbContext
             e.Property(x => x.Qty).HasPrecision(18, 4);
             e.Property(x => x.UnitCost).HasPrecision(18, 8);
             e.HasOne<OpeningImport>().WithMany().HasForeignKey(x => x.OpeningImportId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // A1-8: ReorderPoint (INV-060, INV-061)
+        modelBuilder.Entity<ReorderPoint>(e =>
+        {
+            e.ToTable("ReorderPoint");
+            e.HasKey(x => x.ReorderPointId);
+            e.Property(x => x.ReorderPointQty).HasPrecision(18, 4).IsRequired();
+            e.Property(x => x.RowVersion).IsRowVersion();
+            // Unique per product+warehouse for warehouse-specific reorder points.
+            e.HasIndex(x => new { x.ProductId, x.WarehouseId })
+                .IsUnique()
+                .HasFilter("[WarehouseId] IS NOT NULL");
+            // Unique per product for company-wide reorder points.
+            e.HasIndex(x => x.ProductId)
+                .IsUnique()
+                .HasFilter("[WarehouseId] IS NULL");
+            e.HasIndex(x => x.IsAlerted);
+        });
+
+        // A1-8: IncomingProjection (INV-063)
+        modelBuilder.Entity<IncomingProjection>(e =>
+        {
+            e.ToTable("IncomingProjection");
+            e.HasKey(x => x.IncomingProjectionId);
+            e.Property(x => x.ExpectedQty).HasPrecision(18, 4).IsRequired();
+            e.Property(x => x.RowVersion).IsRowVersion();
+            // Idempotency: one projection per delivery+product+warehouse.
+            e.HasIndex(x => new { x.ExpectedDeliveryId, x.ProductId, x.WarehouseId })
+                .IsUnique();
+            e.HasIndex(x => x.ExpectedDate);
         });
     }
 }

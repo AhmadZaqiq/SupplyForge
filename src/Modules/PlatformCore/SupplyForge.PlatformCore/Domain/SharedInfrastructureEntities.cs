@@ -71,6 +71,7 @@ public class IdempotencyKey
     public string? ResponseSnapshotJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public class JobRun

@@ -112,6 +112,50 @@ namespace SupplyForge.Inventory.Infrastructure.Migrations
                     b.ToTable("AdjustmentLine", "inventory");
                 });
 
+            modelBuilder.Entity("SupplyForge.Inventory.Domain.IncomingProjection", b =>
+                {
+                    b.Property<Guid>("IncomingProjectionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpectedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ExpectedDeliveryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("ExpectedQty")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("IncomingProjectionId");
+
+                    b.HasIndex("ExpectedDate");
+
+                    b.HasIndex("ExpectedDeliveryId", "ProductId", "WarehouseId")
+                        .IsUnique();
+
+                    b.ToTable("IncomingProjection", "inventory");
+                });
+
             modelBuilder.Entity("SupplyForge.Inventory.Domain.OpeningImport", b =>
                 {
                     b.Property<Guid>("OpeningImportId")
@@ -215,6 +259,52 @@ namespace SupplyForge.Inventory.Infrastructure.Migrations
                     b.ToTable("ProductCost", "inventory");
                 });
 
+            modelBuilder.Entity("SupplyForge.Inventory.Domain.ReorderPoint", b =>
+                {
+                    b.Property<Guid>("ReorderPointId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsAlerted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("ReorderPointQty")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("ReorderPointId");
+
+                    b.HasIndex("IsAlerted");
+
+                    b.HasIndex("ProductId")
+                        .IsUnique()
+                        .HasFilter("[WarehouseId] IS NULL");
+
+                    b.HasIndex("ProductId", "WarehouseId")
+                        .IsUnique()
+                        .HasFilter("[WarehouseId] IS NOT NULL");
+
+                    b.ToTable("ReorderPoint", "inventory");
+                });
+
             modelBuilder.Entity("SupplyForge.Inventory.Domain.StockBalance", b =>
                 {
                     b.Property<Guid>("ProductId")
@@ -256,8 +346,18 @@ namespace SupplyForge.Inventory.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("LocationId")
                         .HasColumnType("uniqueidentifier");
@@ -299,6 +399,10 @@ namespace SupplyForge.Inventory.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("MovementId");
+
+                    b.HasIndex("BranchId");
+
+                    b.HasIndex("CorrelationId");
 
                     b.HasIndex("MovementType", "CreatedAt");
 

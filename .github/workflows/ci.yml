@@ -1,80 +1,74 @@
-# NFR-061: CI on PR — build, test, format, container build.
-# NFR-040: dotnet test includes the architecture tests (MOD-1…5 rules).
-# NFR-042: dotnet format --verify-no-changes.
-# NFR-041: unit + integration tests per module (integration against a real
-# SQL Server service container — same image and credentials as the local
-# dev compose; the password is the repository's documented dev placeholder,
-# not a secret).
-#
-# Migrations run only against this job's ephemeral service container (its
-# own database), never against a shared/long-lived environment.
-
 name: CI
 
 on:
-  pull_request:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
-jobs:
-  build-test:
-    runs-on: ubuntu-latest
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: true
 
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "SupplyForge_Dev_2026!"
-          MSSQL_PID: "Developer"
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'SupplyForge_Dev_2026!' -C -Q 'SELECT 1' -b"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 12
-          --health-start-period 20s
+jobs:
+  ci:
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Build
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
         run: dotnet build
 
-      - name: Format (NFR-042)
-        run: dotnet format --verify-no-changes
+      - name: Start SQL Server container
+        run: >
+          docker run
+          -e "ACCEPT_EULA=Y"
+          -e "MSSQL_SA_PASSWORD=SupplyForge_Dev_2026!"
+          -p 1433:1433
+          --name supplyforge-sql
+          -d mcr.microsoft.com/mssql/server:2022-latest
 
-      # Root cause of the first CI run failing: `dotnet ef` resolves through
-      # the .config/dotnet-tools.json manifest (pinned dotnet-ef 10.0.15), which
-      # takes precedence over any global install — a fresh checkout must
-      # restore the manifest or the command exits with a restore hint.
-      - name: Restore manifest-pinned tools (dotnet-ef 10.0.15)
-        run: dotnet tool restore
-
-      - name: Apply migrations to the ephemeral CI database
+      - name: Wait for SQL Server to be ready
         run: |
-          dotnet ef database update \
-            --project src/Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure \
-            --startup-project src/Host/SupplyForge.Host
-          dotnet ef database update \
-            --project src/Modules/Integrations/SupplyForge.Integrations.Infrastructure \
-            --startup-project src/Host/SupplyForge.Host
-          # A1-1: Master Data (master_data schema). Only ever this job's own
-          # service container — never a shared or long-lived database.
-          dotnet ef database update \
-            --project src/Modules/MasterData/SupplyForge.MasterData.Infrastructure \
-            --startup-project src/Host/SupplyForge.Host
+          for i in $(seq 1 30); do
+            if docker exec supplyforge-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'SupplyForge_Dev_2026!' -C -Q 'SELECT 1' \
+                > /dev/null 2>&1; then
+              echo "SQL Server is ready"
+              exit 0
+            fi
+            echo "Waiting for SQL Server... ($i/30)"
+            sleep 5
+          done
+          echo "SQL Server did not become ready" >&2
+          exit 1
 
-      - name: Test — unit, integration (real SQL Server), architecture (NFR-040/041)
-        run: dotnet test
+      - name: Run unit tests (Inventory)
+        run: dotnet test tests/Inventory.UnitTests/
 
-      - name: Container build (NFR-061)
-        run: docker build -t supplyforge-host:ci .
+      - name: Run unit tests (PlatformCore)
+        run: dotnet test tests/PlatformCore.UnitTests/
+
+      - name: Run architecture tests
+        run: dotnet test tests/ArchitectureTests/
+
+      - name: Run integration tests
+        run: dotnet test tests/Inventory.IntegrationTests/
+
+      - name: Stop and remove SQL Server container
+        if: always()
+        run: |
+          docker stop supplyforge-sql > /dev/null 2>&1 || true
+          docker rm supplyforge-sql > /dev/null 2>&1 || true

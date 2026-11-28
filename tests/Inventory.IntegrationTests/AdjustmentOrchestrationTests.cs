@@ -12,6 +12,7 @@ using SupplyForge.Inventory.Infrastructure.Data;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Contracts.Security;
+using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
@@ -76,6 +77,11 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+        sc.AddScoped<ICorrelationIdProvider>(_ => new TestCorrelationIdProvider());
+        sc.AddScoped<IBranchGuard>(sp => new BranchGuard(sp.GetRequiredService<ICurrentBranchScope>()));
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.TransferOrchestrator>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.AdjustmentOrchestrator>();
 
@@ -684,7 +690,7 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         (IServiceScope branch2Scope, AdjustmentOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.ApproveAdjustmentAsync(adjustmentId));
         }
         finally
@@ -715,12 +721,55 @@ public sealed class AdjustmentOrchestrationTests : IAsyncLifetime
         (IServiceScope branch2Scope, AdjustmentOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.RejectAdjustmentAsync(adjustmentId));
         }
         finally
         {
             branch2Scope.Dispose();
         }
+    }
+
+    [Fact]
+    public async Task INV_040_Adjustment_Post_WrongBranch_Rejected()
+    {
+        // Arrange - adjustment created and approved in branch1
+        Guid adjustmentId;
+        var (createScope, createOrchestrator, createInventoryDb, _) = CreateSystemScope();
+        try
+        {
+            adjustmentId = await createOrchestrator.CreateAdjustmentAsync(
+                "FOUND", "Found units", _branch1Id,
+                new[] { LineIn(_productId, _warehouse1Id, _location1Id, 5m) });
+            await createOrchestrator.ApproveAdjustmentAsync(adjustmentId);
+            createInventoryDb.SaveChanges();
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to post from branch2 scope
+        (IServiceScope branch2Scope, AdjustmentOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
+                branch2Orchestrator.PostAdjustmentAsync(adjustmentId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUser
+    {
+        public Guid? UserId => null;
+        public bool IsAuthenticated => false;
+    }
+
+    private sealed class TestCorrelationIdProvider : ICorrelationIdProvider
+    {
+        public string? GetCorrelationId() => null;
     }
 }

@@ -27,6 +27,12 @@ public interface IIdempotencyStore
     /// Called after the business operation succeeds.
     /// </summary>
     Task CompleteAsync(string key, string? responseSnapshotJson, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Release a claimed idempotency key so it can be claimed again.
+    /// Used when the business operation fails after claiming but before completing.
+    /// </summary>
+    Task ReleaseAsync(string key, CancellationToken cancellationToken = default);
 }
 
 public enum IdempotencyClaimStatus

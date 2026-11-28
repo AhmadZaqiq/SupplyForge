@@ -49,6 +49,7 @@ public class PlatformCoreDbContext : DbContext
             e.HasIndex(x => x.UserName).IsUnique();
             e.HasIndex(x => x.Email).IsUnique();
             e.Property(x => x.RowVersion).IsRowVersion();
+            e.Property(x => x.IsCompanyWide).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<Role>(e =>

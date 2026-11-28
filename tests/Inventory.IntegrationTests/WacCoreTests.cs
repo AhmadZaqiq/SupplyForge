@@ -12,6 +12,7 @@ using SupplyForge.Inventory.Infrastructure.Data;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Contracts.Security;
+using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
@@ -82,6 +83,11 @@ public sealed class WacCoreTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+        sc.AddScoped<ICorrelationIdProvider>(_ => new TestCorrelationIdProvider());
+        sc.AddScoped<IBranchGuard>(sp => new BranchGuard(sp.GetRequiredService<ICurrentBranchScope>()));
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
 
         sc.AddDbContext<PlatformCoreDbContext>(o => o.UseSqlServer(ThrowawayDatabase.For(_dbName), sql =>
                 sql.MigrationsHistoryTable("__EFMigrationsHistory", PlatformCoreDbContext.Schema)));
@@ -910,7 +916,7 @@ public sealed class WacCoreTests : IAsyncLifetime
         {
             // Act & Assert - try to post to warehouse in branch 2
             var movement = CreateMovement(_productId, _warehouse2Id, _location2Id, 10, StockMovement.MovementTypes.Receipt, 10.00m);
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(async () =>
                 await poster.PostAsync(movement, "wac-cross-1", "hash-wac-cross-1"));
 
             // Verify no movement recorded
@@ -1303,5 +1309,16 @@ public sealed class WacCoreTests : IAsyncLifetime
         {
             scope.Dispose();
         }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUser
+    {
+        public Guid? UserId => null;
+        public bool IsAuthenticated => false;
+    }
+
+    private sealed class TestCorrelationIdProvider : ICorrelationIdProvider
+    {
+        public string? GetCorrelationId() => null;
     }
 }

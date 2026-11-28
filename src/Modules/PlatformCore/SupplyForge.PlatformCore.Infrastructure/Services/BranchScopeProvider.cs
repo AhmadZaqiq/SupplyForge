@@ -27,9 +27,12 @@ public sealed class BranchScopeProvider : IBranchScopeProvider
         CancellationToken cancellationToken = default)
     {
         // Q-C: company-wide flag lives on platform.User (IsCompanyWide).
-        // Until that column exists (migration pending owner approval), the
-        // company-wide rule is always false — fail closed.
-        var isCompanyWide = false;
+        var user = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.IsCompanyWide })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var isCompanyWide = user?.IsCompanyWide ?? false;
 
         var branchIds = await _db.UserBranchScopes
             .Where(s => s.UserId == userId)

@@ -22,18 +22,18 @@ public sealed class AdjustmentOrchestrator
 {
     private readonly InventoryDbContext _inventory;
     private readonly StockMovementPoster _poster;
-    private readonly ICurrentBranchScope _branchScope;
+    private readonly IBranchGuard _branchGuard;
     private readonly IDbSessionFactory _sessionFactory;
 
     public AdjustmentOrchestrator(
         InventoryDbContext inventory,
         StockMovementPoster poster,
-        ICurrentBranchScope branchScope,
+        IBranchGuard branchGuard,
         IDbSessionFactory sessionFactory)
     {
         _inventory = inventory;
         _poster = poster;
-        _branchScope = branchScope;
+        _branchGuard = branchGuard;
         _sessionFactory = sessionFactory;
     }
 
@@ -57,10 +57,7 @@ public sealed class AdjustmentOrchestrator
             throw new ArgumentException("At least one adjustment line is required.", nameof(lines));
         }
 
-        if (!_branchScope.CanAccess(branchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(branchId);
 
         // Validate adjustment line quantity/movement-type consistency
         // before persisting any document or line (INV-040 application boundary).
@@ -125,6 +122,10 @@ public sealed class AdjustmentOrchestrator
     /// <summary>
     /// Creates a transfer-shortfall reconciliation adjustment (INV-032).
     /// Audit-only: Status = Posted, creates no StockMovements.
+    /// Unlike normal adjustments (INV-040), transfer-shortfall adjustments bypass the
+    /// Draft → Approved → Posted lifecycle because they create no StockMovements and
+    /// serve purely as documentation of a transfer shortfall. Status is Posted directly
+    /// since no movement posting requires the Approved → Posted transition.
     /// Duplicate prevention: rejects if a Transfer adjustment already exists for this TransferId.
     /// </summary>
     public async Task<Guid> CreateTransferShortfallAdjustmentAsync(
@@ -163,6 +164,7 @@ public sealed class AdjustmentOrchestrator
         }
 
         // Branch ownership: the adjustment's branch must own the transfer
+        _branchGuard.RequireAccess(branchId);
         if (branchId != transfer.BranchId)
         {
             throw new InvalidOperationException(
@@ -176,11 +178,6 @@ public sealed class AdjustmentOrchestrator
         {
             throw new InvalidOperationException(
                 "A transfer-shortfall adjustment already exists for this transfer (INV-032 duplicate prevention).");
-        }
-
-        if (!_branchScope.CanAccess(branchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
         }
 
         var adjustment = new Adjustment
@@ -234,10 +231,7 @@ public sealed class AdjustmentOrchestrator
         {
             throw new InvalidOperationException("Adjustment not found.");
         }
-        if (!_branchScope.CanAccess(adjustment.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(adjustment.BranchId);
         if (adjustment.Status != Adjustment.Statuses.Draft && adjustment.Status != Adjustment.Statuses.PendingApproval)
         {
             throw new InvalidOperationException("Only Draft or Pending Approval adjustments can be approved.");
@@ -261,6 +255,7 @@ public sealed class AdjustmentOrchestrator
         {
             throw new InvalidOperationException("Adjustment not found.");
         }
+        _branchGuard.RequireAccess(adjustment.BranchId);
 
         // Transfer-shortfall adjustments are audit-only and already Posted
         if (adjustment.SourceDocumentType == "Transfer")
@@ -326,10 +321,7 @@ public sealed class AdjustmentOrchestrator
         {
             throw new InvalidOperationException("Adjustment not found.");
         }
-        if (!_branchScope.CanAccess(adjustment.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: adjustment branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(adjustment.BranchId);
         if (adjustment.Status == Adjustment.Statuses.Posted || adjustment.Status == Adjustment.Statuses.Rejected)
         {
             throw new InvalidOperationException("Posted or Rejected adjustments cannot be rejected again.");

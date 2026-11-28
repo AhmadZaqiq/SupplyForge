@@ -43,3 +43,8 @@ out/
 
 # Claude / agent scratch
 .claude/
+# AI agent working directories (internal tooling, not project source)
+.kilo/
+.opencode/
+.vscode/
+my-ai-knowledge/

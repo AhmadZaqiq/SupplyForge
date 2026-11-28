@@ -12,6 +12,7 @@ using SupplyForge.Inventory.Infrastructure.Data;
 using SupplyForge.MasterData.Domain;
 using SupplyForge.MasterData.Infrastructure.Data;
 using SupplyForge.PlatformCore.Contracts.Security;
+using SupplyForge.PlatformCore.Infrastructure.Services;
 using SupplyForge.PlatformCore.Infrastructure.Data;
 using SupplyForge.PlatformCore.Infrastructure.Security;
 using SupplyForge.PlatformCore.Infrastructure.Services;
@@ -76,6 +77,11 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         sc.AddScoped<SupplyForge.MasterData.Contracts.Warehouse.IWarehouseBranchResolver,
             SupplyForge.MasterData.Infrastructure.Warehouse.WarehouseBranchResolver>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.StockMovementPoster>();
+        sc.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+        sc.AddScoped<ICorrelationIdProvider>(_ => new TestCorrelationIdProvider());
+        sc.AddScoped<IBranchGuard>(sp => new BranchGuard(sp.GetRequiredService<ICurrentBranchScope>()));
+        sc.AddScoped<SupplyForge.MasterData.Contracts.Location.ILocationQuery,
+            SupplyForge.MasterData.Infrastructure.Location.LocationQuery>();
         sc.AddScoped<SupplyForge.Inventory.Infrastructure.OpeningImportOrchestrator>();
 
         sc.AddDbContext<PlatformCoreDbContext>(o => o.UseSqlServer(ThrowawayDatabase.For(_dbName), sql =>
@@ -341,8 +347,43 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         (IServiceScope branch2Scope, OpeningImportOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.ValidateOpeningImportAsync(importId));
+        }
+        finally
+        {
+            branch2Scope.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task INV_014_OpeningImport_Post_WrongBranch_Rejected()
+    {
+        // Arrange - opening import created in branch1, validated in system scope
+        Guid importId;
+        var (createScope, createOrchestrator, _, _) = CreateSystemScope();
+        try
+        {
+            importId = await createOrchestrator.CreateOpeningImportAsync(
+                _branch1Id,
+                new[]
+                {
+                    new OpeningImportLineInput(
+                        _productId, _warehouse1Id, _location1Id, 100m, 15.00m)
+                });
+            await createOrchestrator.ValidateOpeningImportAsync(importId);
+        }
+        finally
+        {
+            createScope.Dispose();
+        }
+
+        // Act & Assert - try to post from branch2 scope
+        (IServiceScope branch2Scope, OpeningImportOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
+        try
+        {
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
+                branch2Orchestrator.PostOpeningImportAsync(importId));
         }
         finally
         {
@@ -375,12 +416,23 @@ public sealed class OpeningImportOrchestrationTests : IAsyncLifetime
         (IServiceScope branch2Scope, OpeningImportOrchestrator branch2Orchestrator, InventoryDbContext _, BranchScopeHolder _) = await CreateBranchScopeAsync(_branch2Id);
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<BranchNotFoundException>(() =>
                 branch2Orchestrator.RejectOpeningImportAsync(importId));
         }
         finally
         {
             branch2Scope.Dispose();
         }
+    }
+
+    private sealed class TestCurrentUser : ICurrentUser
+    {
+        public Guid? UserId => null;
+        public bool IsAuthenticated => false;
+    }
+
+    private sealed class TestCorrelationIdProvider : ICorrelationIdProvider
+    {
+        public string? GetCorrelationId() => null;
     }
 }

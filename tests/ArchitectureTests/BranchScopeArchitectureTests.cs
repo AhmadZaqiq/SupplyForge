@@ -19,7 +19,10 @@ namespace SupplyForge.ArchitectureTests;
 /// constructor (not a settable property);</item>
 /// <item>no src class exposes a static settable <see cref="ICurrentBranchScope"/>,
 /// and the request-side resolvers never return the system scope.</item>
-/// </list>
+/// <item>no module code outside PlatformCore.Infrastructure checks scope flags
+/// directly (IsSystem, IsCompanyWide, BranchIds); all such checks go through
+/// <see cref="IBranchGuard"/> (BRN-011…014).</item>
+/// </summary>
 /// </summary>
 public class BranchScopeArchitectureTests
 {
@@ -36,6 +39,8 @@ public class BranchScopeArchitectureTests
         "SupplyForge.MasterData.Contracts",
         "SupplyForge.MasterData",
         "SupplyForge.MasterData.Infrastructure",
+        "SupplyForge.Inventory",
+        "SupplyForge.Inventory.Infrastructure",
         "SupplyForge.Host",
     ];
 
@@ -146,6 +151,60 @@ public class BranchScopeArchitectureTests
                 })
                 .Any(t => t == typeof(SystemBranchScope));
             Assert.False(returnsSystem, $"{type.Name} must not return the system scope (Q-E).");
+        }
+    }
+
+    /// <summary>
+    /// BRN-011…014: module code must use <see cref="IBranchGuard"/> for branch
+    /// access checks instead of reading scope flags directly. Any direct check of
+    /// <c>ICurrentBranchScope.IsSystem</c>, <c>IsCompanyWide</c>, or
+    /// <c>BranchIds</c> outside PlatformCore.Infrastructure is a violation.
+    /// </summary>
+    [Fact]
+    public void BRN_011_014_ModuleCode_UsesBranchGuard_NotDirectScopeFlags()
+    {
+        // Scan all .cs files in src/ for direct scope flag access patterns.
+        // PlatformCore.Infrastructure owns IBranchGuard and may read scope
+        // flags directly; all other modules must route through IBranchGuard.
+        var srcRoot = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "src"));
+
+        var scopeFlagPatterns = new[]
+        {
+            ".IsSystem",
+            ".IsCompanyWide",
+            ".BranchIds",
+        };
+
+        foreach (var csFile in Directory.GetFiles(srcRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            var relPath = Path.GetRelativePath(srcRoot, csFile);
+
+            // PlatformCore.Infrastructure owns IBranchGuard; exempt it.
+            if (relPath.StartsWith("Modules/PlatformCore/SupplyForge.PlatformCore.Infrastructure/"))
+                continue;
+
+            // Host.Data.AmbientDbSessionFactory holds ICurrentBranchScope for
+            // ambient session setup; exempt it.
+            if (relPath.EndsWith("Host/Data/AmbientDbSession.cs"))
+                continue;
+
+            // MasterDataDbContext uses ICurrentBranchScope.IsSystem/IsCompanyWide
+            // for global query filter purposes (not business branch checks);
+            // exempt it.
+            if (relPath.EndsWith("SupplyForge.MasterData.Infrastructure/Data/MasterDataDbContext.cs"))
+                continue;
+
+            var text = File.ReadAllText(csFile);
+            foreach (var pattern in scopeFlagPatterns)
+            {
+                if (text.Contains(pattern))
+                {
+                    Assert.Fail(
+                        $"Direct scope flag access '{pattern}' in {relPath} (BRN-011/012). Use IBranchGuard.");
+                }
+            }
         }
     }
 }

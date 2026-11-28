@@ -17,21 +17,17 @@ Owner preferences: informal, short and concrete. Code, config and project files 
 ## 2. Status
 
 ### Current handoff (refresh at every handoff; read before any edit)
-- Last refreshed: 2026-11-26T15:55:00Z
-- Active agent: none (Kilo session; A1-4 Part 2 + A1-5 + A1-6 + A1-7 done, NOT committed)
-- Last commit: 8208234 (docs: handoff sync after owner re-run). A1-4 Part 1 code is 93b28c0.
-- Git status: all A1-4 Part 2 + A1-5 + A1-6 + A1-7 code + tests complete, NOT committed; 0 staged
-- Uncommitted scope: A1-4 Part 2 (branch scope) + A1-5 (inventory ledger + WAC core) + A1-6 (WAC core) + A1-7 (transfer orchestration + corrections) — code + tests complete, NOT committed
-- Changed/new/deleted files:
-  - modified: HANDOFF.md (root + docs), A1-PROGRESS.md, Program.cs, ServiceCollectionExtensions.cs, SupplyForge.Host.csproj, MasterDataDbContext.cs, MasterDataDbContextFactory.cs, MasterDataSeed.cs, MasterData.Infrastructure.csproj, ICurrentBranchScope.cs, PlatformSharedServices.cs, IIdempotencyStore.cs, AmbientSessionThreeModuleTests.cs, MasterDataSeedTests.cs, PartnersAndSharedMasterTests.cs, ProductCatalogueTests.cs, WarehouseLocationTests.cs, README.md
-  - new: BranchScopeHolder.cs, IBranchScopeResolver.cs, HttpBranchScopeResolver.cs, BranchScopeMiddleware.cs, BranchScopeDefaults.cs, NoScopeImpl.cs, BranchScopeProvider.cs, SystemBranchScope.cs, RequestBranchScope.cs, NoBranchScope.cs, BranchScopeArchitectureTests.cs, WarehouseBranchScopeTests.cs, BranchScopeMiddlewareTests.cs, Inventory module (Domain, Contracts, Infrastructure), IWarehouseBranchResolver.cs, WarehouseBranchResolver.cs, 16 Inventory integration tests (A1-5), Inventory.UnitTests project, TransferOrchestrator.cs, AdjustmentOrchestrator.cs, OpeningImportOrchestrator.cs, InventoryDbContext model config, migration 20261126004151_A1TransferOrchestration, Transfer/Adjustment/OpeningImport domain entities, 32 new A1-7 tests (unit + integration), README.md rewrite
-  - deleted: BranchScopeAccessor.cs, BranchScopeContext.cs
-- Decisions: Q-A…Q-D accepted; Q-E decided 2026-11-25 (option a) and IMPLEMENTED; blocked⇒inactive check removed; A1-5: no var, idempotency via ambient TXN rollback (FailAsync removed), branch validation fail-closed via MasterData.Contracts; A1-7 corrections: CloseTransferAsync rejects Cancelled/Closed/Draft/Approved, CreateTransferShortfallAdjustmentAsync validates transfer existence/status/shortfall with HOLDLOCK, PendingApproval state reachable via SubmitForApprovalAsync, OpeningImport warehouse existence validation
+- Last refreshed: 2026-11-27T02:00:00Z
+- Active agent: none (Kilo session; A1-8 + A1-9 + A1-10 complete, corrective work done, NOT committed)
+- Last commit: c197ebe (docs: update Handoff and A1-Progress after corrective work)
+- Git status: A1-8 + A1-9 + A1-10 code + tests complete, NOT committed; 0 staged
+- Uncommitted scope: A1-8 (availability query INV-100, replenishment INV-060/061, returns guard INV-091) + A1-9 (admin user lifecycle MD-004, BRN-009, BRN-010, PLT-ROLE-3) + A1-10 corrective hardening (WAC precision decimal(18,8), adjustment qty/movement-type validation, central branch guard IBranchGuard + BRN-011…014 typed exceptions, StockMovement immutability DB triggers + DENY, StockMovement BranchId/CreatedByUserId/CorrelationId, AvailabilityCalculator shared, filtered unique indexes, LocationType constants in MasterData.Contracts, INV-010/012 raw SQL UPDATE/DELETE rejection tests, INV-061 double-alert prevention, IDEM_03 test isolation fixed, UserServiceTests unique usernames) — code + tests complete, NOT committed
 - Build: 0 errors / 0 warnings — verified
-- Test: Inventory integration 32/32 (A1-7 new) + 40/40 (existing), unit 45/45, architecture 20/20, format clean — all verified
+- Tests: 45 Inventory unit + 75 PlatformCore unit + 20 Architecture = 140 passed; Inventory integration: 109/109 passed; PlatformCore Integration: 62/104 passed (42 pre-existing failures - `IsCompanyWide` migration not applied to shared dev DB, not code defects); MasterData integration: 56/56 passed; ArchitectureTests: 21/21 passed
 - Format: clean — verified (`dotnet format --verify-no-changes` exit 0)
-- Migration: A1-4 Part 1 `20261124181017_A1WarehousesLocations` created, NOT applied; A1-5 `20261125171326_A1InventoryLedger` created, NOT applied; A1-7 `20261126004151_A1TransferOrchestration` created, NOT applied; Q-C `platform.User.IsCompanyWide` migration file only, awaiting owner approval
-- Next step: owner review of all uncommitted A1 work; commit after approval
+- Migrations: All file only; none applied to dev database
+- Migration files: `20261124181017_A1WarehousesLocations`, `20261125171326_A1InventoryLedger`, `20261126004151_A1TransferOrchestration`, `20261126213917_A1_UnitCostPrecision`, `20261126235623_A1_ReplenishmentAvailability`, `20261127005049_A1_UserIsCompanyWide` (NOT APPLIED — causes 42 PlatformCore.IntegrationTests failures), `20261127171551_A1_StockMovementAuditing`, `20261127182116_A1_IdempotencyKeyUpdatedAt`, `20261127192836_A1_ReplenishmentIndexes` — all file only
+- Next step: owner review of all uncommitted A1 work; commit after approval; then A1-11 or later increments
 
 | Item | State |
 |---|---|

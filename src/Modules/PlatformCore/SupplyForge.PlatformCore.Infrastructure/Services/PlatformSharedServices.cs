@@ -129,13 +129,27 @@ public sealed class PlatformSharedServices :
 
     public async Task CompleteAsync(string key, string? responseSnapshotJson, CancellationToken cancellationToken = default)
     {
-        var row = await _db.IdempotencyKeys.FindAsync([key], cancellationToken)
-            ?? throw new InvalidOperationException($"Idempotency key {key} not found.");
+        var row = await _db.IdempotencyKeys.FindAsync([key], cancellationToken);
+        if (row == null)
+        {
+            // Key was released (failed operation), nothing to complete
+            return;
+        }
 
         row.Status = "Completed";
         row.ResponseSnapshotJson = responseSnapshotJson;
-        row.CompletedAt = _clock.GetUtcNow();
+        row.UpdatedAt = _clock.GetUtcNow();
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ReleaseAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var row = await _db.IdempotencyKeys.FindAsync([key], cancellationToken);
+        if (row != null)
+        {
+            _db.IdempotencyKeys.Remove(row);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     /// <summary>PLT-073b: bounded compare-and-swap rounds per allocation.</summary>

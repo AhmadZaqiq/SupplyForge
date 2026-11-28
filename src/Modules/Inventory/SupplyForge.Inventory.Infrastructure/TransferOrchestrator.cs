@@ -21,20 +21,20 @@ public sealed class TransferOrchestrator
     private readonly InventoryDbContext _inventory;
     private readonly StockMovementPoster _poster;
     private readonly IWarehouseBranchResolver _warehouseBranchResolver;
-    private readonly ICurrentBranchScope _branchScope;
+    private readonly IBranchGuard _branchGuard;
     private readonly IDbSessionFactory _sessionFactory;
 
     public TransferOrchestrator(
         InventoryDbContext inventory,
         StockMovementPoster poster,
         IWarehouseBranchResolver warehouseBranchResolver,
-        ICurrentBranchScope branchScope,
+        IBranchGuard branchGuard,
         IDbSessionFactory sessionFactory)
     {
         _inventory = inventory;
         _poster = poster;
         _warehouseBranchResolver = warehouseBranchResolver;
-        _branchScope = branchScope;
+        _branchGuard = branchGuard;
         _sessionFactory = sessionFactory;
     }
 
@@ -68,14 +68,8 @@ public sealed class TransferOrchestrator
             throw new InvalidOperationException("Destination warehouse not found.");
         }
 
-        if (!_branchScope.CanAccess(sourceBranchId.Value))
-        {
-            throw new InvalidOperationException("Branch scope rejected: source warehouse not accessible (BRN-012).");
-        }
-        if (!_branchScope.CanAccess(destBranchId.Value))
-        {
-            throw new InvalidOperationException("Branch scope rejected: destination warehouse not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(sourceBranchId.Value);
+        _branchGuard.RequireAccess(destBranchId.Value);
 
         // BRN-021: inter-branch transfers fail closed until approval routing (B1)
         if (sourceBranchId.Value != destBranchId.Value)
@@ -115,10 +109,7 @@ public sealed class TransferOrchestrator
         {
             throw new InvalidOperationException("Transfer not found.");
         }
-        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(transfer.BranchId);
         if (transfer.Status != Transfer.Statuses.Draft)
         {
             throw new InvalidOperationException("Only Draft transfers can be approved.");
@@ -358,10 +349,7 @@ public sealed class TransferOrchestrator
         {
             throw new InvalidOperationException("Transfer not found.");
         }
-        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
-        }
+        _branchGuard.RequireAccess(transfer.BranchId);
         if (transfer.Status != Transfer.Statuses.Draft && transfer.Status != Transfer.Statuses.Approved)
         {
             throw new InvalidOperationException("Only Draft or Approved transfers can be cancelled.");
@@ -384,11 +372,7 @@ public sealed class TransferOrchestrator
         {
             throw new InvalidOperationException("Transfer not found.");
         }
-        if (!_branchScope.CanAccess(transfer.BranchId) && !_branchScope.IsSystem && !_branchScope.IsCompanyWide)
-        {
-            throw new InvalidOperationException("Branch scope rejected: transfer branch not accessible (BRN-012).");
-        }
-
+        _branchGuard.RequireAccess(transfer.BranchId);
         if (transfer.Status == Transfer.Statuses.Cancelled || transfer.Status == Transfer.Statuses.Closed)
         {
             throw new InvalidOperationException("Cannot close a Cancelled or already-Closed transfer.");
